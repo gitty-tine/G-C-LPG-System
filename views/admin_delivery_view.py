@@ -1,19 +1,21 @@
 import os
 import sys
 import datetime
+import shiboken6
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
 	sys.path.insert(0, PROJECT_ROOT)
 
 from PySide6.QtCore import Qt, QTimer, QDate, QTime, QSortFilterProxyModel, QRect, QSize
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QStandardItemModel, QStandardItem, QIcon, QTextCharFormat
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QStandardItemModel, QStandardItem, QIcon, QTextCharFormat, QFontMetrics
 from PySide6.QtWidgets import (
 	QApplication,
 	QMainWindow,
 	QWidget,
 	QHBoxLayout,
 	QVBoxLayout,
+	QGridLayout,
 	QLabel,
 	QPushButton,
 	QFrame,
@@ -44,6 +46,7 @@ BASE_DIR = PROJECT_ROOT
 FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
 MODERN_CHEVRON_ICON = os.path.join(BASE_DIR, "assets", "chevron_down_modern.svg")
 WHITE_CHEVRON_ICON = os.path.join(BASE_DIR, "assets", "chevron_down_white.svg")
+NO_DELIVERIES_IMAGE = os.path.join(BASE_DIR, "assets", "gnc_icon.png")
 
 TEAL = "#1A7A6E"
 TEAL_DARK = "#145F55"
@@ -743,12 +746,21 @@ class DeliveryItemRow(QWidget):
 		self.setStyleSheet("background:transparent;border:none;")
 		icon_path = _qss_path(MODERN_CHEVRON_ICON)
 
-		lay = QHBoxLayout(self)
-		lay.setContentsMargins(0, 5, 0, 5)
+		outer = QVBoxLayout(self)
+		outer.setContentsMargins(0, 0, 0, 0)
+		outer.setSpacing(0)
+
+		fields = QWidget()
+		fields.setStyleSheet("background:transparent;border:none;")
+		lay = QHBoxLayout(fields)
+		lay.setContentsMargins(0, 0, 0, 0)
 		lay.setSpacing(8)
+		outer.addWidget(fields)
 
 		self.product_combo = QComboBox()
 		self.product_combo.setFont(inter(11))
+		self.product_combo.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+		self.product_combo.setMaximumWidth(880)
 		self._fill_products()
 		self.product_combo.setStyleSheet(
 			f"""
@@ -786,45 +798,39 @@ class DeliveryItemRow(QWidget):
 		self.qty_spin.setRange(1, 99)
 		self.qty_spin.setValue(1)
 		self.qty_spin.setFont(inter(11))
+		self.qty_spin.setFixedWidth(70)
 		self.qty_spin.setStyleSheet(
 			f"""
 			QSpinBox {{
 				color:{GRAY_5};background:{WHITE};
 				border:1px solid #d6e2df;border-radius:10px;
-				padding:0 26px 0 10px;min-height:34px;min-width:86px;
+				padding:0 28px 0 10px;min-height:34px;min-width:70px;
 			}}
 			QSpinBox:hover {{ border-color:#b9d4cf; }}
 			QSpinBox:focus {{ border-color:{TEAL}; }}
 			QSpinBox::up-button, QSpinBox::down-button {{
 				subcontrol-origin:border;
-				width:20px;
-				right:4px;
+				width:18px;
+				right:5px;
 				border:none;
 				background:transparent;
 			}}
-			QSpinBox::up-button {{ top:3px; height:13px; }}
-			QSpinBox::down-button {{ bottom:3px; height:13px; }}
-			QSpinBox::up-arrow {{
-				image:none;
-				width:0;height:0;
-			}}
-			QSpinBox::down-arrow {{
-				image:none;
-				width:0;height:0;
-			}}
+			QSpinBox::up-button {{ top:4px; height:11px; }}
+			QSpinBox::down-button {{ bottom:4px; height:11px; }}
 			"""
 		)
-		self.qty_spin.setButtonSymbols(QSpinBox.PlusMinus)
+		self.qty_spin.setButtonSymbols(QSpinBox.UpDownArrows)
 
 		self.type_combo = QComboBox()
 		self.type_combo.setFont(inter(11))
 		self.type_combo.addItems(["Refill", "New Tank"])
+		self.type_combo.setFixedWidth(100)
 		self.type_combo.setStyleSheet(
 			f"""
 			QComboBox {{
 				color:{GRAY_5};background:{WHITE};
 				border:1px solid #d6e2df;border-radius:10px;
-				padding:0 34px 0 12px;min-height:34px;min-width:120px;
+				padding:0 34px 0 12px;min-height:34px;min-width:100px;
 			}}
 			QComboBox:hover {{ border-color:#b9d4cf; }}
 			QComboBox:focus {{ border-color:{TEAL}; }}
@@ -854,20 +860,54 @@ class DeliveryItemRow(QWidget):
 		self.remove_btn = QPushButton("Remove")
 		self.remove_btn.setCursor(Qt.PointingHandCursor)
 		self.remove_btn.setFont(inter(10, QFont.Medium))
-		self.remove_btn.setFixedHeight(32)
+		self.remove_btn.setFixedHeight(34)
+		self.remove_btn.setFixedWidth(84)
 		self.remove_btn.setStyleSheet(
 			f"""
 			QPushButton {{
 				color:{RED_BTN};background:{RED_BG};
-				border:1px solid #f1c0bc;border-radius:4px;padding:0 12px;
+				border:1px solid #f1c0bc;border-radius:6px;padding:0 10px;
 			}}
 			QPushButton:hover {{ background:#f8d8d5; }}
 			"""
 		)
 
-		lay.addWidget(self.product_combo, 1)
-		lay.addWidget(self.qty_spin)
-		lay.addWidget(self.type_combo)
+		prod_wrap = QWidget()
+		prod_wrap.setStyleSheet("background:transparent;border:none;")
+		pw = QVBoxLayout(prod_wrap)
+		pw.setContentsMargins(0, 0, 0, 0)
+		pw.setSpacing(3)
+		self._prod_lbl = QLabel("PRODUCT")
+		self._prod_lbl.setFont(inter(9, QFont.DemiBold))
+		self._prod_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.1px;background:transparent;border:none;")
+		pw.addWidget(self._prod_lbl)
+		pw.addWidget(self.product_combo)
+
+		qty_wrap = QWidget()
+		qty_wrap.setStyleSheet("background:transparent;border:none;")
+		qw = QVBoxLayout(qty_wrap)
+		qw.setContentsMargins(0, 0, 0, 0)
+		qw.setSpacing(3)
+		self._qty_lbl = QLabel("QTY")
+		self._qty_lbl.setFont(inter(9, QFont.DemiBold))
+		self._qty_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.1px;background:transparent;border:none;")
+		qw.addWidget(self._qty_lbl)
+		qw.addWidget(self.qty_spin)
+
+		type_wrap = QWidget()
+		type_wrap.setStyleSheet("background:transparent;border:none;")
+		tw = QVBoxLayout(type_wrap)
+		tw.setContentsMargins(0, 0, 0, 0)
+		tw.setSpacing(3)
+		self._type_lbl = QLabel("TYPE")
+		self._type_lbl.setFont(inter(9, QFont.DemiBold))
+		self._type_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.1px;background:transparent;border:none;")
+		tw.addWidget(self._type_lbl)
+		tw.addWidget(self.type_combo)
+
+		lay.addWidget(prod_wrap, 1)
+		lay.addWidget(qty_wrap)
+		lay.addWidget(type_wrap)
 		lay.addWidget(self.remove_btn)
 
 	def item_data(self):
@@ -926,11 +966,13 @@ class NewDeliveryModal(QWidget):
 		self._products = list(products or [])
 		self._rows = []
 		self._callback = None
-		self._overlay_margin = 0
+		self._overlay_margin = 28
+		self._card_width = 980
+		self._card_max_height = 620
 		self._drag_active = False
 		self._drag_offset = None
 		self._header_drag_height = 74
-		self.setStyleSheet(f"background:{WHITE};")
+		self.setStyleSheet("background:rgba(10,18,16,92);")
 		self.hide()
 		icon_path = _qss_path(MODERN_CHEVRON_ICON)
 
@@ -940,8 +982,8 @@ class NewDeliveryModal(QWidget):
 			f"""
 			QFrame#newDeliveryCard {{
 				background:{WHITE};
-				border:1px solid {WHITE};
-				border-radius:0px;
+				border:1px solid #dde7e4;
+				border-radius:14px;
 			}}
 			"""
 		)
@@ -950,22 +992,32 @@ class NewDeliveryModal(QWidget):
 		shadow.setOffset(0, 10)
 		shadow.setColor(QColor(0, 0, 0, 60))
 		self._card.setGraphicsEffect(shadow)
-		self._card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+		self._card.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 
 		card_lay = QVBoxLayout(self._card)
 		card_lay.setContentsMargins(0, 0, 0, 0)
 		card_lay.setSpacing(0)
 
 		header = QWidget()
-		header.setStyleSheet(f"background:{WHITE};border:none;border-bottom:1px solid {GRAY_2};")
-		h_lay = QHBoxLayout(header)
-		h_lay.setContentsMargins(22, 16, 22, 14)
+		header.setMinimumHeight(116)
+		header.setStyleSheet(
+			f"background:{TEAL_DARK};border:none;"
+			"border-top-left-radius:14px;border-top-right-radius:14px;"
+		)
+		h_lay = QVBoxLayout(header)
+		h_lay.setContentsMargins(28, 22, 28, 20)
+		h_lay.setSpacing(6)
 
 		title = QLabel("Schedule New Delivery")
-		title.setFont(playfair(16, QFont.DemiBold))
-		title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+		title.setFont(playfair(20, QFont.DemiBold))
+		title.setStyleSheet(f"color:{WHITE};background:transparent;border:none;")
+
+		subtitle = QLabel("Fill in the details to create a new delivery.")
+		subtitle.setFont(inter(13))
+		subtitle.setStyleSheet("color:#a8e6df;background:transparent;border:none;")
+
 		h_lay.addWidget(title)
-		h_lay.addStretch()
+		h_lay.addWidget(subtitle)
 		card_lay.addWidget(header)
 
 		self._form_scroll = QScrollArea()
@@ -991,11 +1043,11 @@ class NewDeliveryModal(QWidget):
 		body = QWidget()
 		body.setStyleSheet(f"background:{WHITE};border:none;")
 		b_lay = QVBoxLayout(body)
-		b_lay.setContentsMargins(22, 18, 22, 18)
-		b_lay.setSpacing(12)
+		b_lay.setContentsMargins(24, 20, 24, 20)
+		b_lay.setSpacing(6)
 
 		top_fields = QHBoxLayout()
-		top_fields.setSpacing(10)
+		top_fields.setSpacing(12)
 
 		self.customer_combo = QComboBox()
 		self.customer_combo.setFont(inter(12))
@@ -1065,7 +1117,7 @@ class NewDeliveryModal(QWidget):
 		b_lay.addLayout(top_fields)
 
 		items_header = QHBoxLayout()
-		items_header.setSpacing(8)
+		items_header.setSpacing(10)
 
 		items_lbl = QLabel("ITEMS")
 		items_lbl.setFont(inter(10, QFont.DemiBold))
@@ -1078,51 +1130,44 @@ class NewDeliveryModal(QWidget):
 		self.add_item_btn.setStyleSheet(
 			f"""
 			QPushButton {{
-				color:{TEAL_DARK};background:{TEAL_PALE};
-				border:1px solid {TEAL_PALE2};border-radius:4px;padding:0 12px;
+				color:{TEAL};background:transparent;
+				border:1px solid {TEAL};border-radius:6px;padding:0 12px;
 			}}
-			QPushButton:hover {{ background:{TEAL_PALE2}; }}
+			QPushButton:hover {{ background:{TEAL_PALE}; }}
 			"""
 		)
 		self.add_item_btn.clicked.connect(self._add_row)
 
+		add_item_wrap = QWidget()
+		add_item_wrap.setStyleSheet("background:transparent;border:none;")
+		add_item_lay = QVBoxLayout(add_item_wrap)
+		add_item_lay.setContentsMargins(0, 8, 0, 2)
+		add_item_lay.setSpacing(0)
+		add_item_lay.addWidget(self.add_item_btn, 0, Qt.AlignRight | Qt.AlignTop)
+
 		items_header.addWidget(items_lbl)
 		items_header.addStretch()
-		items_header.addWidget(self.add_item_btn)
+		items_header.addWidget(add_item_wrap, 0, Qt.AlignTop)
 		b_lay.addLayout(items_header)
-
-		cols = QWidget()
-		cols.setStyleSheet("background:transparent;border:none;")
-		cols_lay = QHBoxLayout(cols)
-		cols_lay.setContentsMargins(4, 0, 2, 0)
-		cols_lay.setSpacing(8)
-
-		for text, stretch in [("PRODUCT", 6), ("QTY", 1), ("TYPE", 2), ("", 1)]:
-			lbl = QLabel(text)
-			lbl.setFont(inter(9, QFont.DemiBold))
-			lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.1px;background:transparent;border:none;")
-			if text:
-				cols_lay.addWidget(lbl, stretch)
-			else:
-				cols_lay.addSpacing(72)
-		b_lay.addWidget(cols)
 
 		self.rows_holder = QWidget()
 		self.rows_holder.setStyleSheet("background:transparent;border:none;")
+		self.rows_holder.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Minimum)
 		self.rows_lay = QVBoxLayout(self.rows_holder)
 		self.rows_lay.setContentsMargins(0, 0, 0, 2)
-		self.rows_lay.setSpacing(18)
+		self.rows_lay.setSpacing(10)
 		b_lay.addWidget(self.rows_holder)
 
 		self._est_total_lbl = QLabel("Estimated total: Php 0.00")
 		self._est_total_lbl.setFont(inter(11, QFont.Medium))
 		self._est_total_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 		b_lay.addWidget(self._est_total_lbl, 0, Qt.AlignRight)
+		b_lay.addSpacing(2)
 
 		self.notes = QTextEdit()
 		self.notes.setPlaceholderText("Optional notes for rider...")
 		self.notes.setFont(inter(11, QFont.Normal))
-		self.notes.setFixedHeight(88)
+		self.notes.setFixedHeight(92)
 		self.notes.setStyleSheet(
 			f"""
 			QTextEdit {{
@@ -1133,7 +1178,11 @@ class NewDeliveryModal(QWidget):
 			QTextEdit:focus {{ border-color:{TEAL}; }}
 			"""
 		)
-		b_lay.addWidget(make_field("Notes", self.notes, required=False))
+		notes_lbl = QLabel("NOTES")
+		notes_lbl.setFont(inter(10, QFont.DemiBold))
+		notes_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.2px;background:transparent;border:none;")
+		b_lay.addWidget(notes_lbl)
+		b_lay.addWidget(self.notes)
 
 		self.error_lbl = QLabel("")
 		self.error_lbl.setFont(inter(11))
@@ -1147,7 +1196,7 @@ class NewDeliveryModal(QWidget):
 		footer = QWidget()
 		footer.setStyleSheet(f"background:{WHITE};border:none;")
 		f_lay = QHBoxLayout(footer)
-		f_lay.setContentsMargins(22, 12, 22, 14)
+		f_lay.setContentsMargins(24, 12, 24, 18)
 		f_lay.setSpacing(10)
 		f_lay.addStretch()
 
@@ -1159,9 +1208,9 @@ class NewDeliveryModal(QWidget):
 			f"""
 			QPushButton {{
 				color:{GRAY_5};background:{WHITE};
-				border:1px solid {TEAL_PALE2};border-radius:4px;padding:0 18px;
+				border:1px solid {GRAY_3};border-radius:6px;padding:0 18px;
 			}}
-			QPushButton:hover {{ background:{WHITE};border-color:{TEAL}; }}
+			QPushButton:hover {{ border-color:{TEAL};color:{TEAL_DARK}; }}
 			"""
 		)
 		cancel_btn.clicked.connect(self._cancel)
@@ -1174,9 +1223,9 @@ class NewDeliveryModal(QWidget):
 			f"""
 			QPushButton {{
 				color:{WHITE};background:{TEAL};
-				border:1px solid {TEAL};border-radius:4px;padding:0 18px;
+				border:none;border-radius:6px;padding:0 18px;
 			}}
-			QPushButton:hover {{ background:{TEAL_DARK};border-color:{TEAL_DARK}; }}
+			QPushButton:hover {{ background:{TEAL_DARK}; }}
 			"""
 		)
 		save_btn.clicked.connect(self._save)
@@ -1204,6 +1253,7 @@ class NewDeliveryModal(QWidget):
 		row.type_combo.currentIndexChanged.connect(self._update_total_estimate)
 		self._rows.append(row)
 		self.rows_lay.addWidget(row)
+		self._update_row_headers()
 		self._update_remove_buttons()
 		self._update_total_estimate()
 		self._reflow_card()
@@ -1215,9 +1265,17 @@ class NewDeliveryModal(QWidget):
 		self.rows_lay.removeWidget(row_widget)
 		row_widget.setParent(None)
 		row_widget.deleteLater()
+		self._update_row_headers()
 		self._update_remove_buttons()
 		self._update_total_estimate()
 		self._reflow_card()
+
+	def _update_row_headers(self):
+		for idx, row in enumerate(self._rows):
+			show = idx == 0
+			row._prod_lbl.setVisible(show)
+			row._qty_lbl.setVisible(show)
+			row._type_lbl.setVisible(show)
 
 	def _fill_customers(self):
 		current = self.customer_combo.currentData()
@@ -1337,8 +1395,12 @@ class NewDeliveryModal(QWidget):
 
 	def _reflow_card(self):
 		margin = self._overlay_margin
-		self._card.adjustSize()
-		self._card.setGeometry(0, 0, self.width(), self.height())
+		card_width = min(self._card_width, max(520, self.width() - (margin * 2)))
+		card_height = min(self._card_max_height, max(420, self.height() - (margin * 2)))
+		self._card.resize(card_width, card_height)
+		x = max(margin, (self.width() - card_width) // 2)
+		y = max(margin, (self.height() - card_height) // 2)
+		self._card.move(x, y)
 
 	def _save(self):
 		if not self._customers:
@@ -1353,8 +1415,17 @@ class NewDeliveryModal(QWidget):
 			return
 
 		items = []
-		for row in self._rows:
-			items.append(row.item_data())
+		for i, row in enumerate(self._rows, start=1):
+			data = row.item_data()
+			if data["product_id"] is None:
+				self.error_lbl.setText(f"Item {i}: Please select a product.")
+				self.error_lbl.show()
+				return
+			if data["quantity"] <= 0:
+				self.error_lbl.setText(f"Item {i}: Quantity must be at least 1.")
+				self.error_lbl.show()
+				return
+			items.append(data)
 
 		if not items:
 			self.error_lbl.setText("Add at least one delivery item.")
@@ -1542,6 +1613,9 @@ class DeliverySavedModal(QWidget):
 		self._drag_active = False
 		self._drag_offset = None
 		self._header_drag_height = 96
+		self._auto_close_timer = QTimer(self)
+		self._auto_close_timer.setSingleShot(True)
+		self._auto_close_timer.timeout.connect(self.hide)
 		self.hide()
 
 		self._card = QFrame(self)
@@ -1563,10 +1637,13 @@ class DeliverySavedModal(QWidget):
 		self._card.setGraphicsEffect(shadow)
 
 		lay = QVBoxLayout(self._card)
-		lay.setContentsMargins(28, 26, 28, 24)
+		lay.setContentsMargins(28, 22, 28, 24)
 		lay.setSpacing(14)
 
 		badge_wrap = QWidget()
+		badge_wrap.setFixedHeight(74)
+		badge_wrap.setAttribute(Qt.WA_TranslucentBackground, True)
+		badge_wrap.setStyleSheet("background:transparent;border:none;")
 		badge_lay = QHBoxLayout(badge_wrap)
 		badge_lay.setContentsMargins(0, 0, 0, 0)
 		badge_lay.setSpacing(0)
@@ -1574,11 +1651,12 @@ class DeliverySavedModal(QWidget):
 
 		self._icon_badge = QLabel("✓")
 		self._icon_badge.setAlignment(Qt.AlignCenter)
+		self._icon_badge.setText("\u2713")
 		self._icon_badge.setFixedSize(62, 62)
 		self._icon_badge.setFont(inter(22, QFont.DemiBold))
 		self._icon_badge.setStyleSheet(
 			f"color:{WHITE};background:qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 {TEAL}, stop:1 {TEAL_LIGHT});"
-			"border-radius:31px;border:3px solid rgba(255,255,255,0.75);"
+			"border-radius:31px;border:3px solid rgba(255,255,255,0.9);"
 		)
 		badge_lay.addWidget(self._icon_badge)
 
@@ -1601,33 +1679,11 @@ class DeliverySavedModal(QWidget):
 			f"color:{GRAY_5};background:{TEAL_PALE};border:1px solid #d7ebe7;border-radius:10px;padding:10px 12px;"
 		)
 
-		self._ok_btn = QPushButton("Okay")
-		self._ok_btn.setCursor(Qt.PointingHandCursor)
-		self._ok_btn.setFixedHeight(40)
-		self._ok_btn.setFont(inter(12, QFont.Medium))
-		self._ok_btn.setStyleSheet(
-			f"""
-			QPushButton {{
-				color:{WHITE};
-				background:{TEAL_DARK};
-				border:1px solid {TEAL_DARK};
-				border-radius:12px;
-				padding:0 18px;
-			}}
-			QPushButton:hover {{
-				background:{TEAL};
-				border-color:{TEAL};
-			}}
-			"""
-		)
-		self._ok_btn.clicked.connect(self.hide)
-
 		lay.addWidget(badge_wrap)
 		lay.addWidget(self._title_lbl)
 		lay.addWidget(self._message_lbl)
 		lay.addWidget(self._hint_lbl)
-		lay.addSpacing(2)
-		lay.addWidget(self._ok_btn, 0, Qt.AlignCenter)
+		lay.addSpacing(4)
 
 	def open(self, customer_name="", schedule_date=None):
 		if schedule_date and hasattr(schedule_date, "toString"):
@@ -1649,7 +1705,11 @@ class DeliverySavedModal(QWidget):
 		self._center_card()
 		self.show()
 		self.raise_()
-		self._ok_btn.setFocus()
+		self._auto_close_timer.start(6000)
+
+	def hide(self):
+		self._auto_close_timer.stop()
+		super().hide()
 
 	def mousePressEvent(self, event):
 		pos = event.position().toPoint()
@@ -1696,7 +1756,7 @@ class DeliverySavedModal(QWidget):
 class DeliveryDetailsModal(QWidget):
 	def __init__(self, parent=None):
 		super().__init__(parent)
-		self.setStyleSheet(f"background:rgba(255,255,255,188);")
+		self.setStyleSheet("background:rgba(255,255,255,188);")
 		self._drag_active = False
 		self._drag_offset = None
 		self._header_drag_height = 72
@@ -1705,7 +1765,7 @@ class DeliveryDetailsModal(QWidget):
 		self._card = QFrame(self)
 		self._card.setObjectName("detailsCard")
 		self._card.setFixedWidth(700)
-		self._card.setMinimumHeight(600)
+		self._card.setMinimumHeight(0)
 		self._card.setStyleSheet(
 			f"""
 			QFrame#detailsCard {{
@@ -1726,31 +1786,60 @@ class DeliveryDetailsModal(QWidget):
 		lay.setSpacing(0)
 
 		header = QWidget()
-		header.setFixedHeight(72)
-		header.setStyleSheet(f"background:{WHITE};border:none;border-bottom:1px solid {GRAY_2};")
+		header.setFixedHeight(104)
+		header.setStyleSheet(
+			f"""
+			background:{TEAL_DARK};
+			border:none;
+			border-top-left-radius:12px;
+			border-top-right-radius:12px;
+			border-bottom-left-radius:0px;
+			border-bottom-right-radius:0px;
+			"""
+		)
 		h_lay = QHBoxLayout(header)
-		h_lay.setContentsMargins(24, 16, 20, 14)
+		h_lay.setContentsMargins(24, 18, 24, 18)
+
+		left_col = QVBoxLayout()
+		left_col.setSpacing(4)
 
 		title = QLabel("Delivery Details")
-		title.setFont(playfair(16, QFont.DemiBold))
-		title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+		title.setFont(inter(17, QFont.Bold))
+		title.setStyleSheet("color:#ffffff;background:transparent;border:none;")
+
+		self._status_badge = QLabel("Delivered")
+		self._status_badge.setFont(inter(10, QFont.DemiBold))
+		self._status_badge.setFixedHeight(28)
+		self._status_badge.setStyleSheet(
+			"color:#d7f0eb;background:rgba(255,255,255,0.10);"
+			"border:1px solid rgba(214,241,235,0.28);"
+			"border-radius:14px;padding:0 12px;"
+		)
+
+		left_col.addWidget(title)
+		left_col.addWidget(self._status_badge)
 
 		close_btn = QPushButton("Close")
 		close_btn.setCursor(Qt.PointingHandCursor)
 		close_btn.setFont(inter(11, QFont.Medium))
-		close_btn.setFixedHeight(30)
+		close_btn.setFixedSize(92, 44)
 		close_btn.setStyleSheet(
-			f"""
-			QPushButton {{
-				color:{GRAY_5};background:{WHITE};
-				border:1px solid {TEAL_PALE2};border-radius:6px;padding:0 14px;
-			}}
-			QPushButton:hover {{ background:{WHITE}; border-color:{TEAL}; }}
+			"""
+			QPushButton {
+				color:rgba(255,255,255,0.92);background:transparent;
+				border:1px solid #c4ccc9;
+				border-radius:12px;padding:0 14px;
+			}
+			QPushButton:hover {
+				color:#ffffff;
+				background:rgba(255,255,255,0.10);
+				border-color:rgba(255,255,255,0.48);
+			}
 			"""
 		)
 		close_btn.clicked.connect(self.hide)
 
-		h_lay.addWidget(title)
+		h_lay.addLayout(left_col)
 		h_lay.addStretch()
 		h_lay.addWidget(close_btn)
 		lay.addWidget(header)
@@ -1758,38 +1847,37 @@ class DeliveryDetailsModal(QWidget):
 		body = QWidget()
 		body.setStyleSheet(f"background:{WHITE};border:none;")
 		self.body_lay = QVBoxLayout(body)
-		self.body_lay.setContentsMargins(24, 25, 24, 12)
-		self.body_lay.setSpacing(10)
+		self.body_lay.setContentsMargins(24, 22, 24, 16)
+		self.body_lay.setSpacing(16)
+		self.body_lay.setAlignment(Qt.AlignTop)
 
-		self.details_lbl = QLabel("DETAILS")
-		self.details_lbl.setFixedHeight(10)
-		self.details_lbl.setFont(inter(10, QFont.DemiBold))
-		self.details_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.1px;background:transparent;border:none;")
-		self.body_lay.addWidget(self.details_lbl)
+		details_lbl = QLabel("DETAILS")
+		details_lbl.setFont(inter(10, QFont.DemiBold))
+		details_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.1px;background:transparent;border:none;")
+		self.body_lay.addWidget(details_lbl)
 
-		self.meta_lbl = QLabel("")
-		self.meta_lbl.setMaximumHeight(130)
-		self.meta_lbl.setFont(inter(11))
-		self.meta_lbl.setTextFormat(Qt.RichText)
-		self.meta_lbl.setWordWrap(True)
-		self.meta_lbl.setStyleSheet(
-			f"""
-			QLabel {{
-				color:{GRAY_5};background:transparent;
-				border:none;
-				padding:0;
-			}}
-			"""
-		)
-		self.body_lay.addWidget(self.meta_lbl)
+		grid_widget = QWidget()
+		grid_widget.setStyleSheet("background:transparent;border:none;")
+		grid_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+		grid = QGridLayout(grid_widget)
+		grid.setContentsMargins(0, 0, 0, 0)
+		grid.setHorizontalSpacing(42)
+		grid.setVerticalSpacing(14)
+
+		self._cust_lbl = self._make_field(grid, 0, 0, "Customer")
+		self._contact_lbl = self._make_field(grid, 0, 1, "Contact")
+		self._date_lbl = self._make_field(grid, 1, 0, "Schedule Date")
+		self._notes_lbl = self._make_field(grid, 1, 1, "Notes")
+
+		self.body_lay.addWidget(grid_widget)
 
 		sep = QFrame()
 		sep.setFrameShape(QFrame.HLine)
-		sep.setStyleSheet(f"color:{GRAY_2};background:{GRAY_2};border:none;margin:6px 0 4px 0;")
+		sep.setFixedHeight(1)
+		sep.setStyleSheet(f"background:{GRAY_2};border:none;")
 		self.body_lay.addWidget(sep)
 
 		orders_lbl = QLabel("LPG ORDERS")
-		orders_lbl.setFixedHeight(10)
 		orders_lbl.setFont(inter(10, QFont.DemiBold))
 		orders_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.1px;background:transparent;border:none;")
 		self.body_lay.addWidget(orders_lbl)
@@ -1807,32 +1895,59 @@ class DeliveryDetailsModal(QWidget):
 			QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background:transparent; }}
 			"""
 		)
-		self.items_scroll.setMaximumHeight(900)
+		self.items_scroll.setMaximumHeight(320)
 		self.items_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
 		self.items_holder = QWidget()
 		self.items_holder.setStyleSheet(f"background:{WHITE};border:none;")
 		self.items_lay = QVBoxLayout(self.items_holder)
 		self.items_lay.setContentsMargins(0, 0, 0, 0)
-		self.items_lay.setSpacing(8)
+		self.items_lay.setSpacing(10)
 		self.items_scroll.setWidget(self.items_holder)
 
 		self.body_lay.addWidget(self.items_scroll)
 
 		total_row = QFrame()
-		total_row.setFixedHeight(60)
+		total_row.setFixedHeight(54)
 		total_row.setStyleSheet(f"background:{WHITE};border:none;border-top:1px solid {GRAY_2};")
 		total_lay = QHBoxLayout(total_row)
-		total_lay.setContentsMargins(0, 0, 0, 0)
+		total_lay.setContentsMargins(0, 8, 0, 0)
 
-		self.total_lbl = QLabel("Total: Php 0.00")
-		self.total_lbl.setFont(inter(13, QFont.DemiBold))
+		total_label = QLabel("Total")
+		total_label.setFont(inter(12))
+		total_label.setStyleSheet(f"color:#3d4745;background:transparent;border:none;")
+
+		self.total_lbl = QLabel("Php 0.00")
+		self.total_lbl.setFont(inter(15, QFont.DemiBold))
 		self.total_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+
+		total_lay.addWidget(total_label)
 		total_lay.addStretch()
 		total_lay.addWidget(self.total_lbl)
 		self.body_lay.addWidget(total_row)
 
 		lay.addWidget(body)
+
+	def _make_field(self, grid, row, col, label_text):
+		container = QWidget()
+		container.setStyleSheet("background:transparent;border:none;")
+		v = QVBoxLayout(container)
+		v.setContentsMargins(0, 0, 0, 0)
+		v.setSpacing(2)
+
+		lbl = QLabel(label_text)
+		lbl.setFont(inter(10))
+		lbl.setStyleSheet(f"color:#444444;background:transparent;border:none;")
+
+		val = QLabel("-")
+		val.setFont(inter(12, QFont.DemiBold))
+		val.setWordWrap(True)
+		val.setStyleSheet(f"color:#222222;background:transparent;border:none;")
+
+		v.addWidget(lbl)
+		v.addWidget(val)
+		grid.addWidget(container, row, col)
+		return val
 
 	def _clear_items_list(self):
 		while self.items_lay.count():
@@ -1844,21 +1959,21 @@ class DeliveryDetailsModal(QWidget):
 
 	def _add_item_row(self, item):
 		row = QWidget()
-		row.setStyleSheet(f"background:{WHITE};border:none;")
+		row.setStyleSheet("background:#f7f5ef;border:none;border-radius:12px;")
 		row_lay = QVBoxLayout(row)
-		row_lay.setContentsMargins(0, 0, 0, 0)
-		row_lay.setSpacing(2)
+		row_lay.setContentsMargins(16, 14, 16, 14)
+		row_lay.setSpacing(4)
 
 		top = QHBoxLayout()
 		top.setContentsMargins(0, 0, 0, 0)
 		top.setSpacing(8)
 
 		product_lbl = QLabel(item["product_name"])
-		product_lbl.setFont(inter(11, QFont.DemiBold))
-		product_lbl.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+		product_lbl.setFont(inter(12, QFont.DemiBold))
+		product_lbl.setStyleSheet("color:#222222;background:transparent;border:none;")
 
 		amount_lbl = QLabel(f"Php {item['subtotal']:,.2f}")
-		amount_lbl.setFont(inter(11, QFont.DemiBold))
+		amount_lbl.setFont(inter(12, QFont.DemiBold))
 		amount_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
 		top.addWidget(product_lbl)
@@ -1868,36 +1983,50 @@ class DeliveryDetailsModal(QWidget):
 
 		bottom = QLabel(f"Qty: {item['quantity']}   Type: {item['type']}")
 		bottom.setFont(inter(10))
-		bottom.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+		bottom.setStyleSheet("color:#4f4f4f;background:transparent;border:none;")
 		row_lay.addWidget(bottom)
-
-		sep = QFrame()
-		sep.setFrameShape(QFrame.HLine)
-		sep.setStyleSheet(f"color:{GRAY_2};background:{GRAY_2};border:none;margin:6px 0 0 0;")
-		row_lay.addWidget(sep)
 
 		self.items_lay.addWidget(row)
 
 	def open(self, delivery):
 		date_text = delivery["schedule_date"].toString("MMM d, yyyy")
-		self.meta_lbl.setText(
-			f"<div style='line-height:1.55;'>"
-			f"<span style='color:{TEAL_DARK};font-weight:700;'>Customer:</span> "
-			f"{delivery['customer_name']} ({delivery['contact']})<br>"
-			f"<span style='color:{TEAL_DARK};font-weight:700;'>Schedule Date:</span> {date_text}<br>"
-			f"<span style='color:{TEAL_DARK};font-weight:700;'>Status:</span> {delivery['status']}<br>"
-			f"<span style='color:{TEAL_DARK};font-weight:700;'>Notes:</span> {delivery.get('notes') or '—'}"
-			f"</div>"
+		status_text = str(delivery.get("status") or "Pending")
+		badge_styles = {
+			"delivered": ("#d7f0eb", "rgba(255,255,255,0.10)", "rgba(214,241,235,0.28)"),
+			"in transit": ("#d7f0eb", "rgba(255,255,255,0.10)", "rgba(214,241,235,0.28)"),
+			"pending": ("#fff0c8", "rgba(255,255,255,0.10)", "rgba(255,240,200,0.30)"),
+			"cancelled": ("#ffd6d6", "rgba(255,255,255,0.10)", "rgba(255,214,214,0.30)"),
+		}
+		badge_fg, badge_bg, badge_border = badge_styles.get(
+			status_text.strip().lower(),
+			("#d7f0eb", "rgba(255,255,255,0.10)", "rgba(214,241,235,0.28)"),
 		)
+		self._status_badge.setText(status_text)
+		badge_width = QFontMetrics(self._status_badge.font()).horizontalAdvance(status_text) + 28
+		self._status_badge.setFixedWidth(badge_width)
+		self._status_badge.setStyleSheet(
+			f"color:{badge_fg};background:{badge_bg};"
+			f"border:1px solid {badge_border};"
+			"border-radius:14px;padding:0 12px;"
+		)
+		self._cust_lbl.setText(delivery.get("customer_name") or "-")
+		self._contact_lbl.setText(delivery.get("contact") or "-")
+		self._date_lbl.setText(date_text)
+		self._notes_lbl.setText(delivery.get("notes") or "-")
 
 		self._clear_items_list()
 		for item in delivery["items"]:
 			self._add_item_row(item)
+		self.items_holder.adjustSize()
+		items_height = self.items_holder.sizeHint().height()
+		self.items_scroll.setFixedHeight(min(320, max(0, items_height)))
 
-		self.total_lbl.setText(f"Total: Php {delivery['total_amount']:,.2f}")
+		self.total_lbl.setText(f"Php {delivery['total_amount']:,.2f}")
 
 		if self.parent():
 			self.setGeometry(self.parent().rect())
+		self.body_lay.activate()
+		self._card.layout().activate()
 		self._reflow_card()
 		self.show()
 		self.raise_()
@@ -1938,7 +2067,6 @@ class DeliveryDetailsModal(QWidget):
 		self._drag_active = False
 		self._drag_offset = None
 		super().mouseReleaseEvent(event)
-
 	def _reflow_card(self):
 		self._card.adjustSize()
 		card_w = self._card.width()
@@ -1950,38 +2078,146 @@ class DeliveryDetailsModal(QWidget):
 		self._card.move(x, y)
 
 
-class DeliveryActionDelegate(QStyledItemDelegate):
-	def __init__(self, table, page):
-		super().__init__(table)
-		self._table = table
-		self._page = page
+
+# --- Status Pill Delegate ---
+class DeliveryStatusDelegate(QStyledItemDelegate):
+	_COLORS = {
+		"delivered":  (GREEN_BG,  GREEN),
+		"in_transit": (GRAY_2, GRAY_5),
+		"pending":    (AMBER_BG,  AMBER),
+		"cancelled":  (RED_BG,    RED),
+	}
+	_LABELS = {
+		"delivered":  "Delivered",
+		"in_transit": "In Transit",
+		"pending":    "Pending",
+		"cancelled":  "Cancelled",
+	}
 
 	def paint(self, painter, option, index):
 		painter.save()
+
 		if option.state & QStyle.State_Selected:
 			painter.fillRect(option.rect, QColor(TEAL_PALE))
+		else:
+			painter.fillRect(option.rect, QColor(WHITE))
 
-		update_rect = option.rect.adjusted(10, 12, -10, -12)
-		painter.setPen(QColor(AMBER))
-		painter.setBrush(QColor(AMBER_BG))
-		painter.drawRoundedRect(update_rect, 6, 6)
-		painter.setFont(inter(9, QFont.Medium))
-		painter.setPen(QColor(AMBER))
-		painter.drawText(update_rect, Qt.AlignCenter, "Update")
+		painter.setPen(QColor(GRAY_2))
+		painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+
+		raw = index.data(Qt.DisplayRole) or ""
+		key = raw.lower().replace(" ", "_")
+		bg, fg = self._COLORS.get(key, (GRAY_2, GRAY_5))
+		label = self._LABELS.get(key, raw)
+
+		fm = QFontMetrics(inter(11, QFont.Medium))
+		pill_w = fm.horizontalAdvance(label) + 22
+		pill_h = 22
+		cx = option.rect.center().x()
+		cy = option.rect.center().y()
+		pill_rect = QRect(
+			cx - pill_w // 2,
+			cy - pill_h // 2,
+			pill_w,
+			pill_h
+		)
+
+		painter.setRenderHint(QPainter.Antialiasing)
+		painter.setBrush(QColor(bg))
+		painter.setPen(Qt.NoPen)
+		painter.drawRoundedRect(pill_rect, 11, 11)
+
+		painter.setFont(inter(11, QFont.Medium))
+		painter.setPen(QColor(fg))
+		painter.drawText(pill_rect, Qt.AlignCenter, label)
 
 		painter.restore()
 
 	def sizeHint(self, option, index):
-		return QSize(120, 60)
+		return QSize(110, 58)
+
+# --- Ghost Update Button ---
+class DeliveryActionDelegate(QStyledItemDelegate):
+	def __init__(self, table, page):
+		super().__init__(table)
+		self._table = table
+		self._viewport = table.viewport()
+		self._page  = page
+		self._hovered_row = -1
+		table.setMouseTracking(True)
+		self._viewport.installEventFilter(self)
+		table.destroyed.connect(self._on_table_destroyed)
+
+	def _on_table_destroyed(self, *args):
+		self._table = None
+		self._viewport = None
+
+	def eventFilter(self, obj, event):
+		from PySide6.QtCore import QEvent
+		if not self._table or not self._viewport:
+			return False
+		if not shiboken6.isValid(self._table) or not shiboken6.isValid(self._viewport):
+			self._table = None
+			self._viewport = None
+			return False
+		if obj is self._viewport:
+			if event.type() == QEvent.MouseMove:
+				idx = self._table.indexAt(event.position().toPoint())
+				new_row = idx.row() if idx.isValid() else -1
+				if new_row != self._hovered_row:
+					self._hovered_row = new_row
+					self._viewport.update()
+		return super().eventFilter(obj, event)
+
+	def paint(self, painter, option, index):
+		painter.save()
+
+		# row background
+		if option.state & QStyle.State_Selected:
+			painter.fillRect(option.rect, QColor(TEAL_PALE))
+		else:
+			painter.fillRect(option.rect, QColor(WHITE))
+
+		# bottom border
+		painter.setPen(QColor(GRAY_2))
+		painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+
+		# button rect
+		btn_rect = option.rect.adjusted(10, 14, -10, -14)
+		is_hovered = (index.row() == self._hovered_row)
+
+		painter.setRenderHint(QPainter.Antialiasing)
+
+		# ghost button — border changes to teal on hover
+		border_color = QColor(TEAL) if is_hovered else QColor(GRAY_3)
+		text_color   = QColor(TEAL_DARK) if is_hovered else QColor(GRAY_5)
+		bg_color     = QColor(TEAL_PALE) if is_hovered else QColor(WHITE)
+
+		painter.setBrush(bg_color)
+		painter.setPen(QPen(border_color, 1))
+		painter.drawRoundedRect(btn_rect, 6, 6)
+
+		# label
+		text_rect = QRect(
+			btn_rect.left(),
+			btn_rect.top(),
+			btn_rect.width(),
+			btn_rect.height()
+		)
+		painter.setFont(inter(11, QFont.Medium))
+		painter.setPen(text_color)
+		painter.drawText(text_rect, Qt.AlignCenter, "Update")
+
+		painter.restore()
+
+	def sizeHint(self, option, index):
+		return QSize(120, 58)
 
 	def editorEvent(self, event, model, option, index):
 		from PySide6.QtCore import QEvent
-
 		if event.type() == QEvent.MouseButtonRelease:
-			update_rect = option.rect.adjusted(10, 12, -10, -12)
-			pos = event.position().toPoint()
-
-			if update_rect.contains(pos):
+			btn_rect = option.rect.adjusted(10, 14, -10, -14)
+			if btn_rect.contains(event.position().toPoint()):
 				self._page.open_status(index.row())
 				return True
 		return False
@@ -2290,6 +2526,7 @@ class DeliveryView(QWidget):
 		self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
 		self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
 		self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+
 		self._table.setStyleSheet(
 			f"""
 			QTableView {{
@@ -2300,22 +2537,43 @@ class DeliveryView(QWidget):
 			QTableView::item {{ padding:10px 12px;border-bottom:0.5px solid {GRAY_2}; }}
 			QTableView::item:selected {{ background:{TEAL_PALE};color:{TEAL_DARK}; }}
 			QHeaderView::section {{
-				background:{WHITE};color:{GRAY_4};
-				font-size:10px;font-weight:600;letter-spacing:1.3px;
+				background:{WHITE};color:{GRAY_5};
+				font-size:12px;font-weight:600;letter-spacing:0.3px;
 				padding:10px 12px 8px;border:none;border-bottom:1px solid {GRAY_2};
 				font-family:'{INTER_FAMILY}';
 			}}
 			"""
 		)
 		self._table.setItemDelegateForColumn(5, DeliveryActionDelegate(self._table, self))
+		self._table.setItemDelegateForColumn(4, DeliveryStatusDelegate(self._table))  # add this
 		self._table.doubleClicked.connect(lambda index: self.open_details(index.row()))
 
 		self._empty = QWidget()
 		self._empty.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 		e_lay = QVBoxLayout(self._empty)
 		e_lay.setContentsMargins(0, 0, 0, 0)
-		e_lay.setSpacing(6)
+		e_lay.setSpacing(8)
+		e_lay.setAlignment(Qt.AlignHCenter)
 		e_lay.addStretch()
+		e_image = QLabel()
+		e_image.setAlignment(Qt.AlignCenter)
+		e_image.setStyleSheet("background:transparent;border:none;")
+		e_image.setFixedSize(230, 145)
+		empty_pixmap = QPixmap(NO_DELIVERIES_IMAGE)
+		if not empty_pixmap.isNull():
+			scale = self.devicePixelRatio()
+			target_w = int(230 * scale)
+			target_h = int(145 * scale)
+			scaled = empty_pixmap.scaled(
+				target_w, target_h,
+				Qt.KeepAspectRatio,
+				Qt.SmoothTransformation,
+    )
+			scaled.setDevicePixelRatio(scale)
+			e_image.setPixmap(scaled)
+		
+		e_lay.addWidget(e_image, 0, Qt.AlignHCenter)
+		e_lay.addSpacing(8)
 		e_title = QLabel("No deliveries found")
 		e_title.setFont(playfair(16, QFont.Medium))
 		e_title.setAlignment(Qt.AlignCenter)
@@ -2324,8 +2582,8 @@ class DeliveryView(QWidget):
 		e_sub.setFont(inter(12))
 		e_sub.setAlignment(Qt.AlignCenter)
 		e_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
-		e_lay.addWidget(e_title)
-		e_lay.addWidget(e_sub)
+		e_lay.addWidget(e_title, 0, Qt.AlignHCenter)
+		e_lay.addWidget(e_sub, 0, Qt.AlignHCenter)
 		e_lay.addStretch()
 
 		self._table_stack = QStackedWidget()
@@ -2360,6 +2618,10 @@ class DeliveryView(QWidget):
 		self._load_from_controller()
 		self._refresh_table()
 		self._refresh_summary_cards()
+
+	def reset_page_state(self):
+		self._clear_filters()
+		self.reload_data()
 
 	def _build_topbar(self):
 		bar = QWidget()
@@ -2607,7 +2869,7 @@ class DeliveryView(QWidget):
 	def _status_fg(self, status):
 		return {
 			"Pending": AMBER,
-			"In Transit": TEAL_DARK,
+			"In Transit": GRAY_5,
 			"Delivered": GREEN,
 			"Cancelled": RED,
 		}.get(status, GRAY_5)
@@ -2914,3 +3176,4 @@ def main():
 
 if __name__ == "__main__":
 	main()
+

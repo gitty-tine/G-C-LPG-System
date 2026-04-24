@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 
 from PySide6.QtCore import QObject
@@ -45,6 +46,90 @@ class OwnerProductController(QObject):
             ) if part
         ) or "-"
 
+    @staticmethod
+    def _normalize_product_payload(product):
+        normalized = dict(product or {})
+        normalized["name"] = (normalized.get("name") or "").strip()
+
+        size = (normalized.get("cylinder_size") or "").strip()
+        if size and not size.lower().endswith("kg"):
+            size = size + "kg"
+        normalized["cylinder_size"] = size
+
+        normalized["refill_price"] = float(normalized.get("refill_price"))
+        normalized["new_tank_price"] = float(normalized.get("new_tank_price"))
+        return normalized
+
+    @staticmethod
+    def _parse_cylinder_size(size):
+        raw = (size or "").strip()
+        if not raw:
+            return None
+
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)\s*kg?", raw, re.IGNORECASE)
+        if match:
+            return float(match.group(1))
+
+        match = re.fullmatch(r"(\d+(?:\.\d+)?)", raw)
+        if match:
+            return float(match.group(1))
+
+        return None
+
+    @staticmethod
+    def _friendly_product_error(exc):
+        raw_message = str(exc or "").strip()
+        lowered = raw_message.lower()
+        cleaned = re.sub(r"^\d+\s*\([^)]+\)\s*:\s*", "", raw_message).strip()
+
+        if "product with this name already exists" in lowered or "name already exists" in lowered:
+            return {"name": "Product already exists."}
+
+        if "same name and size" in lowered:
+            return {"name": "Product already exists."}
+
+        if "product with id" in lowered and "not found" in lowered:
+            return {"form": "This product could not be found anymore. Please refresh and try again."}
+
+        return {"form": cleaned or "Unable to save the product. Please try again."}
+
+    @staticmethod
+    def validate_product(product, product_id=None):
+        normalized = OwnerProductController._normalize_product_payload(product)
+        errors = {}
+
+        if not normalized["name"]:
+            errors["name"] = "Product name is required."
+        if not normalized["cylinder_size"]:
+            errors["cylinder_size"] = "Cylinder size is required."
+        else:
+            size_value = OwnerProductController._parse_cylinder_size(
+                normalized["cylinder_size"]
+            )
+            if size_value is None:
+                errors["cylinder_size"] = "Enter a valid cylinder size like 2.7 or 11kg."
+            elif size_value <= 0:
+                errors["cylinder_size"] = "Cylinder size must be greater than zero."
+
+        if normalized["refill_price"] <= 0:
+            errors["refill_price"] = "Prices must be greater than zero."
+        if normalized["new_tank_price"] <= 0:
+            errors["new_tank_price"] = "Prices must be greater than zero."
+
+        if not errors:
+            if product_id:
+                exists = OwnerProductModel.exists(
+                    normalized["name"],
+                    normalized["cylinder_size"],
+                    exclude_id=product_id,
+                )
+                if exists:
+                    errors["name"] = "Product already exists."
+            elif OwnerProductModel.exists(normalized["name"], normalized["cylinder_size"]):
+                errors["name"] = "Product already exists."
+
+        return normalized, errors
+
     def attach_view(self, view):
         self._view = view
         return self
@@ -66,15 +151,16 @@ class OwnerProductController(QObject):
 
     def add_product(self, product):
         try:
-            name = (product.get("name") or "").strip()
-            size = (product.get("cylinder_size") or "").strip()
-            refill = float(product.get("refill_price"))
-            new_tank = float(product.get("new_tank_price"))
-            if not name or not size:
-                raise ValueError("Name and cylinder size are required.")
-            if OwnerProductModel.exists(name, size):
-                raise ValueError("A product with the same name and size already exists.")
-            new_id = OwnerProductModel.add(name, size, refill, new_tank)
+            normalized, errors = self.validate_product(product)
+            if errors:
+                return False, errors
+
+            new_id = OwnerProductModel.add(
+                normalized["name"],
+                normalized["cylinder_size"],
+                normalized["refill_price"],
+                normalized["new_tank_price"],
+            )
             product["id"] = new_id
             created = OwnerProductModel.get_by_id(new_id)
             AuditActorModel.sync_actor(
@@ -86,24 +172,28 @@ class OwnerProductController(QObject):
                 new_value=self._product_snapshot(created),
             )
             self.refresh_products()
+            return True, created
         except Exception as exc:  # pylint: disable=broad-except
-            self._error("Add Product Failed", exc)
+            return False, self._friendly_product_error(exc)
 
     def update_product(self, product):
         try:
             product_id = product.get("id")
             if not product_id:
-                raise ValueError("Product id is required for update.")
-            name = (product.get("name") or "").strip()
-            size = (product.get("cylinder_size") or "").strip()
-            refill = float(product.get("refill_price"))
-            new_tank = float(product.get("new_tank_price"))
-            if not name or not size:
-                raise ValueError("Name and cylinder size are required.")
-            if OwnerProductModel.exists(name, size, exclude_id=product_id):
-                raise ValueError("Another product with the same name and size exists.")
+                return False, {"form": "Product id is required for update."}
+
+            normalized, errors = self.validate_product(product, product_id=product_id)
+            if errors:
+                return False, errors
+
             before = OwnerProductModel.get_by_id(product_id)
-            OwnerProductModel.update(product_id, name, size, refill, new_tank)
+            OwnerProductModel.update(
+                product_id,
+                normalized["name"],
+                normalized["cylinder_size"],
+                normalized["refill_price"],
+                normalized["new_tank_price"],
+            )
             after = OwnerProductModel.get_by_id(product_id)
             AuditActorModel.sync_actor(
                 "lpg_products",
@@ -114,8 +204,9 @@ class OwnerProductController(QObject):
                 new_value=self._product_snapshot(after),
             )
             self.refresh_products()
+            return True, after
         except Exception as exc:  # pylint: disable=broad-except
-            self._error("Update Product Failed", exc)
+            return False, self._friendly_product_error(exc)
 
     def delete_product(self, product):
         try:

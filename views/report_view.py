@@ -1621,7 +1621,7 @@ class ReportView(QFrame):
         from_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
         self.from_date = QDateEdit()
-        self.from_date.setDate(QDate.currentDate().addDays(-30))
+        self.from_date.setDate(QDate.currentDate())
         self.from_date.setCalendarPopup(True)
         self.from_date.setDisplayFormat("MMM d, yyyy")
         self.from_date.setFont(inter(10))
@@ -1658,7 +1658,7 @@ class ReportView(QFrame):
         self._content_stack.setCurrentIndex(0)
         lay.addWidget(self._content_stack)
 
-        self._apply_filter()
+        self._switch_tab("daily")
 
         lay.addStretch()
         scroll.setWidget(w)
@@ -1743,6 +1743,25 @@ class ReportView(QFrame):
         """Switch between tabs"""
         tab_index = {"daily": 0, "weekly": 1, "monthly": 2}.get(tab_name, 0)
         self._content_stack.setCurrentIndex(tab_index)
+
+        today = QDate.currentDate()
+        self.from_date.blockSignals(True)
+        self.to_date.blockSignals(True)
+
+        if tab_name == "daily":
+            self.from_date.setDate(today)
+            self.to_date.setDate(today)
+        elif tab_name == "weekly":
+            week_start = today.addDays(-(today.dayOfWeek() - 1))
+            self.from_date.setDate(week_start)
+            self.to_date.setDate(today)
+        elif tab_name == "monthly":
+            self.from_date.setDate(QDate(today.year(), today.month(), 1))
+            self.to_date.setDate(today)
+
+        self.from_date.blockSignals(False)
+        self.to_date.blockSignals(False)
+
         self._apply_filter()
 
         # Update tab button styles

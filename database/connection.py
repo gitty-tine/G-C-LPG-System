@@ -6,7 +6,7 @@ DB_CONFIG = {
     "host":     "localhost",
     "user":     "root",
     "password": "",
-    "database": "g&c_lpg_db",
+    "database": "gnclpgdb",
 }
 
 

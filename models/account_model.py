@@ -63,6 +63,17 @@ class AccountModel:
             if not AccountModel.verify_password(current_plain_password, user["password"]):
                 raise ValueError("Current password is incorrect.")
 
+            new_plain_password = new_plain_password.strip()
+
+            if not new_plain_password:
+                raise ValueError("New password cannot be empty or contain only spaces.")
+
+            if len(new_plain_password) < 8:
+                raise ValueError("New password must be at least 8 characters.")
+
+            if new_plain_password == current_plain_password.strip():
+                raise ValueError("New password must be different from your current password.")
+
             hashed = bcrypt.hashpw(
                 new_plain_password.encode("utf-8"),
                 bcrypt.gensalt()

@@ -38,9 +38,6 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from controllers.account_controller import AccountController
-from controllers.login_controller import LoginController
-from controllers.owner_product_controller import OwnerProductController
 from views.admin_dashboard_view import (
     AMBER,
     BASE_DIR,
@@ -385,20 +382,72 @@ class OwnerDashboardView(QMainWindow):
         "Audit Logs": "logs_icon",
     }
 
-    def __init__(self, user=None, controller=None):
+    def __init__(self, user=None, controller=None, action_handlers=None, page_factories=None):
         super().__init__()
         load_fonts()
         self._user = user or {"full_name": "", "role": "owner"}
         self._controller = None
         self._dashboard_data = self._empty_dashboard_data()
         self._dashboard_refresh_interval_ms = 15000
-        self._account_controller = AccountController()
         self._dropdown_open = False
+        self._action_handlers = {}
+        self._page_factories = {}
+        self._set_default_action_handlers()
+        self._set_default_page_factories()
+        if action_handlers:
+            self.bind_action_handlers(**action_handlers)
+        if page_factories:
+            self.bind_page_factories(**page_factories)
         self.setWindowTitle("G and C LPG Trading - Owner Dashboard")
         self._build_ui()
         if controller is not None:
             self.bind_controller(controller, request_initial=True)
         self.showFullScreen()
+
+    def bind_action_handlers(self, update_profile=None, change_password=None, logout=None):
+        if update_profile is not None:
+            self._action_handlers["update_profile"] = update_profile
+        if change_password is not None:
+            self._action_handlers["change_password"] = change_password
+        if logout is not None:
+            self._action_handlers["logout"] = logout
+        return self
+
+    def bind_page_factories(
+        self,
+        products=None,
+        transactions=None,
+        reports=None,
+        delivery_logs=None,
+        audit_logs=None,
+    ):
+        if products is not None:
+            self._page_factories["products"] = products
+        if transactions is not None:
+            self._page_factories["transactions"] = transactions
+        if reports is not None:
+            self._page_factories["reports"] = reports
+        if delivery_logs is not None:
+            self._page_factories["delivery_logs"] = delivery_logs
+        if audit_logs is not None:
+            self._page_factories["audit_logs"] = audit_logs
+        return self
+
+    def _set_default_action_handlers(self):
+        self._action_handlers = {
+            "update_profile": self._default_update_profile,
+            "change_password": self._default_change_password,
+            "logout": self._default_logout,
+        }
+
+    def _set_default_page_factories(self):
+        self._page_factories = {
+            "products": self._default_create_products_page,
+            "transactions": self._default_create_transactions_page,
+            "reports": self._default_create_reports_page,
+            "delivery_logs": self._default_create_delivery_logs_page,
+            "audit_logs": self._default_create_audit_logs_page,
+        }
 
     def bind_controller(self, controller, request_initial=True):
         self._controller = controller
@@ -808,6 +857,12 @@ class OwnerDashboardView(QMainWindow):
         ]:
             self._set_nav_item_style(nav_item, nav_item is active_item)
 
+    def _create_embedded_page(self, page_key):
+        factory = self._page_factories.get(page_key)
+        if factory is None:
+            raise RuntimeError(f"No page factory bound for '{page_key}'.")
+        return factory()
+
     def _show_dashboard_page(self):
         self._content_stack.setCurrentWidget(self._dashboard_page)
         self._set_active_sidebar_item(self.btn_dashboard)
@@ -817,13 +872,8 @@ class OwnerDashboardView(QMainWindow):
 
     def _show_products_page(self):
         if not hasattr(self, "_embedded_product_page") or self._embedded_product_page is None:
-            from views.owner_products_view import OwnerProductsView
-
-            self._embedded_product_page = OwnerProductsView(show_topbar=False)
+            self._embedded_product_page = self._create_embedded_page("products")
             self._content_stack.addWidget(self._embedded_product_page)
-            # Wire controller so data loads from the database.
-            self._owner_product_controller = OwnerProductController().attach_view(self._embedded_product_page)
-            self._embedded_product_page.bind_controller(self._owner_product_controller, request_initial=True)
         self._content_stack.setCurrentWidget(self._embedded_product_page)
         self._set_active_sidebar_item(self.btn_products)
         self._set_topbar_title("LPG PRODUCTS")
@@ -831,20 +881,10 @@ class OwnerDashboardView(QMainWindow):
 
     def _show_transactions_page(self):
         if not hasattr(self, "_embedded_transaction_page") or self._embedded_transaction_page is None:
-            from controllers.admin_transaction_controller import AdminTransactionController
-            from views.owner_transactions_view import OwnerTransactionsView
-
-            self._owner_transaction_controller = AdminTransactionController()
-            self._embedded_transaction_page = OwnerTransactionsView(
-                show_topbar=False, controller=self._owner_transaction_controller
-            )
+            self._embedded_transaction_page = self._create_embedded_page("transactions")
             self._content_stack.addWidget(self._embedded_transaction_page)
         elif getattr(self, "_owner_transaction_controller", None) is None:
-            from controllers.admin_transaction_controller import AdminTransactionController
-            self._owner_transaction_controller = AdminTransactionController()
-            self._embedded_transaction_page.bind_controller(
-                self._owner_transaction_controller, request_initial=True
-            )
+            self._ensure_transaction_page_controller()
         self._content_stack.setCurrentWidget(self._embedded_transaction_page)
         self._set_active_sidebar_item(self.btn_transactions)
         self._set_topbar_title("TRANSACTIONS")
@@ -852,15 +892,7 @@ class OwnerDashboardView(QMainWindow):
 
     def _show_reports_page(self):
         if not hasattr(self, "_embedded_reports_page") or self._embedded_reports_page is None:
-            from controllers.report_controller import ReportController
-            from views.report_view import ReportView
-
-            self._report_controller = ReportController()
-            self._embedded_reports_page = ReportView(
-                user=self._user,
-                show_topbar=False,
-                controller=self._report_controller,
-            )
+            self._embedded_reports_page = self._create_embedded_page("reports")
             self._content_stack.addWidget(self._embedded_reports_page)
         self._content_stack.setCurrentWidget(self._embedded_reports_page)
         self._set_active_sidebar_item(self.btn_reports)
@@ -869,22 +901,10 @@ class OwnerDashboardView(QMainWindow):
 
     def _show_delivery_logs_page(self):
         if not hasattr(self, "_embedded_delivery_logs_page") or self._embedded_delivery_logs_page is None:
-            from controllers.delivery_logs_controller import DeliveryLogsController
-            from views.delivery_logs_view import DeliveryLogsView
-
-            self._owner_delivery_log_controller = DeliveryLogsController()
-            self._embedded_delivery_logs_page = DeliveryLogsView(
-                show_topbar=False,
-                controller=self._owner_delivery_log_controller,
-            )
+            self._embedded_delivery_logs_page = self._create_embedded_page("delivery_logs")
             self._content_stack.addWidget(self._embedded_delivery_logs_page)
         elif getattr(self, "_owner_delivery_log_controller", None) is None:
-            from controllers.delivery_logs_controller import DeliveryLogsController
-            self._owner_delivery_log_controller = DeliveryLogsController()
-            self._embedded_delivery_logs_page.bind_controller(
-                self._owner_delivery_log_controller,
-                request_initial=True,
-            )
+            self._ensure_delivery_logs_page_controller()
         self._content_stack.setCurrentWidget(self._embedded_delivery_logs_page)
         self._set_active_sidebar_item(self.btn_del_logs)
         self._set_topbar_title("DELIVERY LOGS")
@@ -892,22 +912,10 @@ class OwnerDashboardView(QMainWindow):
 
     def _show_audit_logs_page(self):
         if not hasattr(self, "_embedded_audit_logs_page") or self._embedded_audit_logs_page is None:
-            from controllers.audit_logs_controller import AuditLogsController
-            from views.audit_logs_view import AuditLogsView
-
-            self._owner_audit_logs_controller = AuditLogsController()
-            self._embedded_audit_logs_page = AuditLogsView(
-                show_topbar=False,
-                controller=self._owner_audit_logs_controller,
-            )
+            self._embedded_audit_logs_page = self._create_embedded_page("audit_logs")
             self._content_stack.addWidget(self._embedded_audit_logs_page)
         elif getattr(self, "_owner_audit_logs_controller", None) is None:
-            from controllers.audit_logs_controller import AuditLogsController
-            self._owner_audit_logs_controller = AuditLogsController()
-            self._embedded_audit_logs_page.bind_controller(
-                self._owner_audit_logs_controller,
-                request_initial=True,
-            )
+            self._ensure_audit_logs_page_controller()
         self._content_stack.setCurrentWidget(self._embedded_audit_logs_page)
         self._set_active_sidebar_item(self.btn_audit_logs)
         self._set_topbar_title("AUDIT LOGS")
@@ -1443,6 +1451,102 @@ class OwnerDashboardView(QMainWindow):
         self._dropdown.raise_()
         self._sync_dropdown_state()
 
+    def _default_update_profile(self, new_name, new_username):
+        from controllers.account_controller import AccountController
+
+        return AccountController().update_profile(new_name, new_username)
+
+    def _default_change_password(self, current, new):
+        from controllers.account_controller import AccountController
+
+        return AccountController().change_password(current, new)
+
+    def _default_logout(self):
+        from controllers.login_controller import LoginController
+
+        LoginController.logout()
+
+    def _default_create_products_page(self):
+        from controllers.owner_product_controller import OwnerProductController
+        from views.owner_products_view import OwnerProductsView
+
+        self._embedded_product_page = OwnerProductsView(show_topbar=False)
+        self._owner_product_controller = OwnerProductController().attach_view(self._embedded_product_page)
+        self._embedded_product_page.bind_controller(self._owner_product_controller, request_initial=True)
+        return self._embedded_product_page
+
+    def _default_create_transactions_page(self):
+        from controllers.admin_transaction_controller import AdminTransactionController
+        from views.owner_transactions_view import OwnerTransactionsView
+
+        self._owner_transaction_controller = AdminTransactionController()
+        self._embedded_transaction_page = OwnerTransactionsView(
+            show_topbar=False,
+            controller=self._owner_transaction_controller,
+        )
+        return self._embedded_transaction_page
+
+    def _ensure_transaction_page_controller(self):
+        from controllers.admin_transaction_controller import AdminTransactionController
+
+        self._owner_transaction_controller = AdminTransactionController()
+        self._embedded_transaction_page.bind_controller(
+            self._owner_transaction_controller,
+            request_initial=True,
+        )
+
+    def _default_create_reports_page(self):
+        from controllers.report_controller import ReportController
+        from views.report_view import ReportView
+
+        self._report_controller = ReportController()
+        self._embedded_reports_page = ReportView(
+            user=self._user,
+            show_topbar=False,
+            controller=self._report_controller,
+        )
+        return self._embedded_reports_page
+
+    def _default_create_delivery_logs_page(self):
+        from controllers.delivery_logs_controller import DeliveryLogsController
+        from views.delivery_logs_view import DeliveryLogsView
+
+        self._owner_delivery_log_controller = DeliveryLogsController()
+        self._embedded_delivery_logs_page = DeliveryLogsView(
+            show_topbar=False,
+            controller=self._owner_delivery_log_controller,
+        )
+        return self._embedded_delivery_logs_page
+
+    def _ensure_delivery_logs_page_controller(self):
+        from controllers.delivery_logs_controller import DeliveryLogsController
+
+        self._owner_delivery_log_controller = DeliveryLogsController()
+        self._embedded_delivery_logs_page.bind_controller(
+            self._owner_delivery_log_controller,
+            request_initial=True,
+        )
+
+    def _default_create_audit_logs_page(self):
+        from controllers.audit_logs_controller import AuditLogsController
+        from views.audit_logs_view import AuditLogsView
+
+        self._owner_audit_logs_controller = AuditLogsController()
+        self._embedded_audit_logs_page = AuditLogsView(
+            show_topbar=False,
+            controller=self._owner_audit_logs_controller,
+        )
+        return self._embedded_audit_logs_page
+
+    def _ensure_audit_logs_page_controller(self):
+        from controllers.audit_logs_controller import AuditLogsController
+
+        self._owner_audit_logs_controller = AuditLogsController()
+        self._embedded_audit_logs_page.bind_controller(
+            self._owner_audit_logs_controller,
+            request_initial=True,
+        )
+
     def _sync_dropdown_state(self):
         self._dropdown_open = self._dropdown.isVisible()
         self._chevron.setText("▴" if self._dropdown_open else "▾")
@@ -1472,7 +1576,7 @@ class OwnerDashboardView(QMainWindow):
 
     def _update_name(self, new_name, new_username):
         try:
-            self._user = self._account_controller.update_profile(new_name, new_username)
+            self._user = self._action_handlers["update_profile"](new_name, new_username)
             self._refresh_profile_texts()
             QMessageBox.information(self, "Profile Updated", "Your profile has been updated.")
             return True
@@ -1482,7 +1586,7 @@ class OwnerDashboardView(QMainWindow):
 
     def _do_change_password(self, current, new):
         try:
-            self._account_controller.change_password(current, new)
+            self._action_handlers["change_password"](current, new)
             QMessageBox.information(self, "Password Updated", "Your password has been updated.")
             return True
         except Exception as exc:
@@ -1490,7 +1594,7 @@ class OwnerDashboardView(QMainWindow):
             return False
 
     def _sign_out(self):
-        LoginController.logout()
+        self._action_handlers["logout"]()
         from views.login_view import LoginView
 
         self._login_view = LoginView()

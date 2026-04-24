@@ -157,31 +157,6 @@ class CustomerModel:
 
     
     @staticmethod
-    def get_summary_counts():
-        conn   = None
-        cursor = None
-        try:
-            conn   = get_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute("""
-                SELECT
-                    COUNT(*)                                        AS total_customers,
-                    SUM(
-                        CASE
-                            WHEN MONTH(created_at) = MONTH(CURDATE())
-                            AND  YEAR(created_at)  = YEAR(CURDATE())
-                            THEN 1 ELSE 0
-                        END
-                    )                                               AS added_this_month
-                FROM customers
-            """)
-            return cursor.fetchone()
-        finally:
-            if cursor: cursor.close()
-            if conn:   conn.close()
-
-    
-    @staticmethod
     def add(full_name, address, contact_number, notes):
         conn   = None
         cursor = None
@@ -263,16 +238,11 @@ class CustomerModel:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
 
-            
             cursor.execute("""
                 SELECT COUNT(*) AS active_count
                 FROM deliveries
                 WHERE customer_id = %s
-                  AND status IN (
-                      SELECT DISTINCT status
-                      FROM deliveries
-                      WHERE status IN ('pending', 'in_transit')
-                  )
+                  AND LOWER(TRIM(status)) IN ('pending', 'in transit', 'in_transit')
             """, (customer_id,))
 
             row = cursor.fetchone()
@@ -280,6 +250,18 @@ class CustomerModel:
                 raise ValueError(
                     "This customer has active deliveries (pending or in transit). "
                     "Please complete or cancel them before deleting."
+                )
+
+            cursor.execute("""
+                SELECT COUNT(*) AS delivery_count
+                FROM deliveries
+                WHERE customer_id = %s
+            """, (customer_id,))
+
+            row = cursor.fetchone()
+            if row and row["delivery_count"] > 0:
+                raise ValueError(
+                    "This customer cannot be deleted because there are existing delivery records linked to this customer."
                 )
 
             cursor.execute(

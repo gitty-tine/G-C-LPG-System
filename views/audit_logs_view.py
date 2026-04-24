@@ -2,7 +2,7 @@ import os
 import sys
 
 from PySide6.QtCore import Qt, QTimer, QDate, QTime
-from PySide6.QtGui import QFont, QFontDatabase, QIcon, QColor, QTextCharFormat
+from PySide6.QtGui import QFont, QFontDatabase, QIcon, QColor, QTextCharFormat, QPixmap
 from PySide6.QtWidgets import (
 	QApplication,
 	QWidget,
@@ -40,6 +40,7 @@ BASE_DIR = PROJECT_ROOT
 FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
 MODERN_CHEVRON_ICON = os.path.join(BASE_DIR, "assets", "chevron_down_modern.svg")
 WHITE_CHEVRON_ICON = os.path.join(BASE_DIR, "assets", "chevron_down_white.svg")
+NO_AUDIT_LOGS_IMAGE = os.path.join(BASE_DIR, "assets", "gnc_icon.png")
 
 TEAL = "#1A7A6E"
 TEAL_DARK = "#145F55"
@@ -539,21 +540,23 @@ class AuditLogsView(QWidget):
 		self._date_from = QDateEdit()
 		self._date_from.setCalendarPopup(True)
 		self._date_from.setDisplayFormat("MMM d, yyyy")
-		self._date_from.setDate(QDate.currentDate().addYears(-10))
+		today = QDate.currentDate()
+		first_of_month = QDate(today.year(), today.month(), 1)
+		self._date_from.setDate(first_of_month)
 		self._date_from.setFont(inter(11))
 		self._date_from.setFixedHeight(34)
-		self._date_from.setMinimumWidth(130)
-		self._date_from.setMaximumWidth(150)
+		self._date_from.setMinimumWidth(170)
+		self._date_from.setMaximumWidth(170)
 		self._date_from.dateChanged.connect(self._on_date_from_changed)
 
 		self._date_to = QDateEdit()
 		self._date_to.setCalendarPopup(True)
 		self._date_to.setDisplayFormat("MMM d, yyyy")
-		self._date_to.setDate(QDate.currentDate())
+		self._date_to.setDate(today)
 		self._date_to.setFont(inter(11))
 		self._date_to.setFixedHeight(34)
-		self._date_to.setMinimumWidth(130)
-		self._date_to.setMaximumWidth(150)
+		self._date_to.setMinimumWidth(170)
+		self._date_to.setMaximumWidth(170)
 		self._date_to.dateChanged.connect(self._on_date_to_changed)
 
 		from_lbl = QLabel("From")
@@ -566,8 +569,8 @@ class AuditLogsView(QWidget):
 
 		self._filter_action_type.setStyleSheet(_combo_box_style(min_width=180))
 		self._filter_section.setStyleSheet(_combo_box_style(min_width=180))
-		self._configure_date_edit(self._date_from, min_width=130)
-		self._configure_date_edit(self._date_to, min_width=130)
+		self._configure_date_edit(self._date_from, min_width=170)
+		self._configure_date_edit(self._date_to, min_width=170)
 
 		filter_row.addWidget(self._filter_action_type)
 		filter_row.addWidget(self._filter_section)
@@ -663,7 +666,6 @@ class AuditLogsView(QWidget):
 		self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
 		self._table.horizontalHeader().setStretchLastSection(False)
 		self._table.horizontalHeader().setMinimumSectionSize(110)
-		self._table.setMinimumWidth(1560)
 		self._table.setColumnWidth(0, 130)
 		self._table.setColumnWidth(1, 150)
 		self._table.setColumnWidth(2, 420)
@@ -679,14 +681,36 @@ class AuditLogsView(QWidget):
 		empty_lay.setContentsMargins(0, 36, 0, 36)
 		empty_lay.setAlignment(Qt.AlignCenter)
 
+		empty_image = QLabel()
+		empty_image.setAlignment(Qt.AlignCenter)
+		empty_image.setStyleSheet("background:transparent;border:none;")
+		empty_image.setFixedSize(230, 145)
+		empty_pixmap = QPixmap(NO_AUDIT_LOGS_IMAGE)
+		if not empty_pixmap.isNull():
+			scale = self.devicePixelRatio()
+			target_w = int(230 * scale)
+			target_h = int(145 * scale)
+			scaled = empty_pixmap.scaled(
+				target_w,
+				target_h,
+				Qt.KeepAspectRatio,
+				Qt.SmoothTransformation,
+			)
+			scaled.setDevicePixelRatio(scale)
+			empty_image.setPixmap(scaled)
+
 		empty_title = QLabel("No audit logs found")
 		empty_title.setFont(playfair(16, QFont.Medium))
+		empty_title.setAlignment(Qt.AlignCenter)
 		empty_title.setStyleSheet(f"color:{GRAY_4};")
 
 		empty_desc = QLabel("Logs matching the selected filters will appear here.")
 		empty_desc.setFont(inter(12))
+		empty_desc.setAlignment(Qt.AlignCenter)
+		empty_desc.setWordWrap(True)
 		empty_desc.setStyleSheet(f"color:{GRAY_3};")
 
+		empty_lay.addWidget(empty_image, 0, Qt.AlignCenter)
 		empty_lay.addWidget(empty_title)
 		empty_lay.addWidget(empty_desc)
 
@@ -828,6 +852,27 @@ class AuditLogsView(QWidget):
 		if not self._controller:
 			return
 		self._controller.load()
+
+	def reset_view_state(self):
+		today = QDate.currentDate()
+		first_of_month = QDate(today.year(), today.month(), 1)
+
+		self._filter_action_type.blockSignals(True)
+		self._filter_section.blockSignals(True)
+		self._date_from.blockSignals(True)
+		self._date_to.blockSignals(True)
+
+		self._filter_action_type.setCurrentIndex(0)
+		self._filter_section.setCurrentIndex(0)
+		self._date_from.setDate(first_of_month)
+		self._date_to.setDate(today)
+
+		self._filter_action_type.blockSignals(False)
+		self._filter_section.blockSignals(False)
+		self._date_from.blockSignals(False)
+		self._date_to.blockSignals(False)
+
+		self.reload_data()
 
 	def show_error(self, title, message):
 		QMessageBox.critical(self, title, str(message))

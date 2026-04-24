@@ -54,13 +54,6 @@ class CustomerController:
             return False, str(e)
 
     @staticmethod
-    def get_summary():
-        try:
-            return True, CustomerModel.get_summary_counts()
-        except Exception as e:
-            return False, str(e)
-
-    @staticmethod
     def get_active_customers():
         try:
             return True, CustomerModel.get_active()
@@ -133,10 +126,6 @@ def list_customers():
 
 def search_customers(keyword):
     return CustomerController.search_customers(keyword)
-
-
-def get_summary():
-    return CustomerController.get_summary()
 
 
 def get_active_customers():

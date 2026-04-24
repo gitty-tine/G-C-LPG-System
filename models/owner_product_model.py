@@ -214,16 +214,15 @@ class OwnerProductModel:
         try:
             conn   = get_connection()
             cursor = conn.cursor()
-
-            conn.start_transaction()
-
-            cursor.execute("""
-                INSERT INTO lpg_products (name, cylinder_size, refill_price, new_tank_price)
-                VALUES (TRIM(%s), TRIM(%s), ROUND(%s, 2), ROUND(%s, 2))
-            """, (name, cylinder_size,
-                  float(refill_price), float(new_tank_price)))
-
-            new_id = cursor.lastrowid
+            cursor.callproc(
+                "sp_add_product",
+                [name, cylinder_size, float(refill_price), float(new_tank_price)]
+            )
+            new_id = None
+            for result in cursor.stored_results():
+                row = result.fetchone()
+                if row:
+                    new_id = row[0]
             conn.commit()
             return new_id
 
@@ -284,22 +283,17 @@ class OwnerProductModel:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
 
-            
             cursor.execute("""
-                SELECT COUNT(*) AS active_count
+                SELECT COUNT(*) AS linked_count
                 FROM delivery_items
                 WHERE product_id = %s
-                  AND delivery_id IN (
-                      SELECT id FROM deliveries
-                      WHERE status IN ('pending', 'in_transit')
-                  )
             """, (product_id,))
 
             row = cursor.fetchone()
-            if row and row["active_count"] > 0:
+            if row and row["linked_count"] > 0:
                 raise ValueError(
-                    "This product is currently part of active deliveries. "
-                    "Please complete or cancel those deliveries before deleting."
+                    "This product cannot be deleted because it is already linked "
+                    "to existing delivery or transaction records."
                 )
 
             cursor.execute(

@@ -514,9 +514,6 @@ class DeliveryModel:
                 conn.rollback()
                 raise ValueError("Failed to create delivery record.")
 
-            
-            cursor.execute("SAVEPOINT before_items_insert")
-
             for item in items:
                 cursor.execute("""
                     INSERT INTO delivery_items

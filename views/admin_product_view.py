@@ -27,6 +27,7 @@ from views.admin_dashboard_view import owner_scrollbar_qss
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
 PRODUCT_ICON_PATH = os.path.join(BASE_DIR, "assets", "lpg_product_icon.png")
+NO_PRODUCTS_IMAGE = os.path.join(BASE_DIR, "assets", "gnc_icon.png")
 
 TEAL = "#1A7A6E"
 TEAL_DARK = "#145F55"
@@ -320,19 +321,41 @@ class ProductView(QWidget):
 
         self._empty_state = QWidget()
         es_lay = QVBoxLayout(self._empty_state)
-        es_lay.setContentsMargins(0, 40, 0, 40)
+        es_lay.setContentsMargins(0, 36, 0, 36)
         es_lay.setAlignment(Qt.AlignCenter)
 
-        es_title = QLabel("No products available")
-        es_title.setFont(playfair(16, QFont.Medium))
-        es_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        empty_image = QLabel()
+        empty_image.setAlignment(Qt.AlignCenter)
+        empty_image.setStyleSheet("background:transparent;border:none;")
+        empty_image.setFixedSize(230, 145)
+        empty_pixmap = QPixmap(NO_PRODUCTS_IMAGE)
+        if not empty_pixmap.isNull():
+            scale = self.devicePixelRatio()
+            target_w = int(230 * scale)
+            target_h = int(145 * scale)
+            scaled = empty_pixmap.scaled(
+                target_w,
+                target_h,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            scaled.setDevicePixelRatio(scale)
+            empty_image.setPixmap(scaled)
 
-        es_sub = QLabel("Products added by the owner will appear here.")
-        es_sub.setFont(inter(12))
-        es_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+        self._empty_title = QLabel("No products available")
+        self._empty_title.setFont(playfair(16, QFont.Medium))
+        self._empty_title.setAlignment(Qt.AlignCenter)
+        self._empty_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
-        es_lay.addWidget(es_title)
-        es_lay.addWidget(es_sub)
+        self._empty_sub = QLabel("Nothing to show here yet. Add a product to get started.")
+        self._empty_sub.setFont(inter(12))
+        self._empty_sub.setAlignment(Qt.AlignCenter)
+        self._empty_sub.setWordWrap(False)
+        self._empty_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+
+        es_lay.addWidget(empty_image, 0, Qt.AlignCenter)
+        es_lay.addWidget(self._empty_title)
+        es_lay.addWidget(self._empty_sub)
 
         self._list_stack = QStackedWidget()
         self._list_stack.addWidget(self._grid_wrap)
@@ -402,6 +425,7 @@ class ProductView(QWidget):
         self._products = list(products or [])
         self._render_grid()
         self._count_lbl.setText(f"{len(self._products)} products")
+        self._refresh_empty_state()
         self._list_stack.setCurrentWidget(self._grid_wrap if self._products else self._empty_state)
 
     # Backward-compatible alias for older callers.
@@ -422,6 +446,18 @@ class ProductView(QWidget):
             self._grid.addWidget(ProductCard(product), row, col)
 
         self._grid.setColumnStretch(columns, 1)
+
+    def _refresh_empty_state(self):
+        keyword = self._search.text().strip()
+        if keyword:
+            self._empty_title.setText("No matching products")
+            self._empty_sub.setText(
+                f'No product matched "{keyword}". Try a different product name.'
+            )
+            return
+
+        self._empty_title.setText("No products available")
+        self._empty_sub.setText("Nothing to show here yet. Add a product to get started.")
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -447,6 +483,13 @@ class ProductView(QWidget):
     # Public helper so controllers can surface problems without reaching into internals.
     def show_error(self, title, message):
         self._show_error(title, message)
+
+    def reset_view_state(self):
+        if self._search.text():
+            self._search.blockSignals(True)
+            self._search.clear()
+            self._search.blockSignals(False)
+        self.productsRequested.emit("")
 
     def bind_controller(self, controller, request_initial=True):
         """Connect controller slots to view signals without hard dependencies.

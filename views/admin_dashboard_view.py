@@ -24,6 +24,7 @@ from controllers.product_controller import ProductController
 # ── Project root & asset paths ────────────────────────────────────────────────
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
+NO_SCHEDULE_IMAGE = os.path.join(BASE_DIR, "assets", "gnc_icon.png")
 PLAYFAIR_FAMILY = "Playfair Display"
 INTER_FAMILY = "Inter"
 
@@ -688,6 +689,20 @@ class DashboardView(QMainWindow):
         except (TypeError, ValueError):
             return "PHP 0.00"
 
+    @staticmethod
+    def _split_delivery_products(summary):
+        text = str(summary or "").strip()
+        if not text:
+            return []
+        return [part.strip() for part in text.split(",") if str(part).strip()]
+
+    @staticmethod
+    def _delivery_products_tooltip(items):
+        cleaned = [str(item).strip() for item in (items or []) if str(item).strip()]
+        if not cleaned:
+            return "No items"
+        return "\n".join(cleaned)
+
     def _display_name(self):
         full_name = str(self._user.get("full_name", "") or "").strip()
         if full_name:
@@ -1018,7 +1033,17 @@ class DashboardView(QMainWindow):
         ]:
             self._set_nav_item_style(nav_item, nav_item is active_item)
 
+    def _close_delivery_overlays(self):
+        page = getattr(self, "_embedded_delivery_page", None)
+        if page is None:
+            return
+
+        new_modal = getattr(page, "_new_modal", None)
+        if new_modal is not None and new_modal.isVisible():
+            new_modal.hide()
+
     def _show_dashboard_page(self):
+        self._close_delivery_overlays()
         self._content_stack.setCurrentWidget(self._dashboard_page)
         self._set_active_sidebar_item(self.btn_dashboard)
         self._set_topbar_title("DASHBOARD")
@@ -1032,6 +1057,8 @@ class DashboardView(QMainWindow):
             self._content_stack.addWidget(self._embedded_delivery_page)
         elif getattr(self._embedded_delivery_page, "_controller", None) is None:
             self._embedded_delivery_page.bind_controller(DeliveryController())
+        elif hasattr(self._embedded_delivery_page, "reset_page_state"):
+            self._embedded_delivery_page.reset_page_state()
         elif hasattr(self._embedded_delivery_page, "reload_data"):
             self._embedded_delivery_page.reload_data()
 
@@ -1041,10 +1068,13 @@ class DashboardView(QMainWindow):
         self._sync_dashboard_refresh_timer()
 
     def _show_customers_page(self):
+        self._close_delivery_overlays()
         if not hasattr(self, "_embedded_customer_page") or self._embedded_customer_page is None:
             from views.customer_view import CustomerView
             self._embedded_customer_page = CustomerView(show_topbar=False)
             self._content_stack.addWidget(self._embedded_customer_page)
+        else:
+            self._embedded_customer_page.reset_view_state()
 
         self._content_stack.setCurrentWidget(self._embedded_customer_page)
         self._set_active_sidebar_item(self.btn_customers)
@@ -1052,6 +1082,7 @@ class DashboardView(QMainWindow):
         self._sync_dashboard_refresh_timer()
 
     def _show_products_page(self):
+        self._close_delivery_overlays()
         if not hasattr(self, "_embedded_product_page") or self._embedded_product_page is None:
             from views.admin_product_view import ProductView
             self._embedded_product_page = ProductView(show_topbar=False)
@@ -1059,6 +1090,8 @@ class DashboardView(QMainWindow):
             # Wire controller to keep MVC boundaries clean and load data.
             self._product_controller = ProductController().attach_view(self._embedded_product_page)
             self._embedded_product_page.bind_controller(self._product_controller, request_initial=True)
+        else:
+            self._embedded_product_page.reset_view_state()
 
         self._content_stack.setCurrentWidget(self._embedded_product_page)
         self._set_active_sidebar_item(self.btn_products)
@@ -1066,6 +1099,7 @@ class DashboardView(QMainWindow):
         self._sync_dashboard_refresh_timer()
 
     def _show_transactions_page(self):
+        self._close_delivery_overlays()
         if not hasattr(self, "_embedded_transaction_page") or self._embedded_transaction_page is None:
             from controllers.admin_transaction_controller import AdminTransactionController
             from views.admin_transaction_view import TransactionView
@@ -1078,6 +1112,8 @@ class DashboardView(QMainWindow):
             from controllers.admin_transaction_controller import AdminTransactionController
             self._transaction_controller = AdminTransactionController()
             self._embedded_transaction_page.bind_controller(self._transaction_controller, request_initial=True)
+        else:
+            self._embedded_transaction_page.reset_view_state()
 
         self._content_stack.setCurrentWidget(self._embedded_transaction_page)
         self._set_active_sidebar_item(self.btn_transactions)
@@ -1085,6 +1121,7 @@ class DashboardView(QMainWindow):
         self._sync_dashboard_refresh_timer()
 
     def _show_delivery_logs_page(self):
+        self._close_delivery_overlays()
         if not hasattr(self, "_embedded_delivery_logs_page") or self._embedded_delivery_logs_page is None:
             from controllers.delivery_logs_controller import DeliveryLogsController
             from views.delivery_logs_view import DeliveryLogsView
@@ -1101,6 +1138,8 @@ class DashboardView(QMainWindow):
                 self._delivery_log_controller,
                 request_initial=True,
             )
+        else:
+            self._embedded_delivery_logs_page.reset_view_state()
 
         self._content_stack.setCurrentWidget(self._embedded_delivery_logs_page)
         self._set_active_sidebar_item(self.btn_del_logs)
@@ -1108,6 +1147,7 @@ class DashboardView(QMainWindow):
         self._sync_dashboard_refresh_timer()
 
     def _show_audit_logs_page(self):
+        self._close_delivery_overlays()
         if not hasattr(self, "_embedded_audit_logs_page") or self._embedded_audit_logs_page is None:
             from controllers.audit_logs_controller import AuditLogsController
             from views.audit_logs_view import AuditLogsView
@@ -1124,6 +1164,8 @@ class DashboardView(QMainWindow):
                 self._audit_logs_controller,
                 request_initial=True,
             )
+        else:
+            self._embedded_audit_logs_page.reset_view_state()
 
         self._content_stack.setCurrentWidget(self._embedded_audit_logs_page)
         self._set_active_sidebar_item(self.btn_audit_logs)
@@ -1242,6 +1284,7 @@ class DashboardView(QMainWindow):
             self._customer_window.setCentralWidget(page)
             self._customer_window.showMaximized()
         else:
+            self._customer_window.centralWidget().reset_view_state()
             self._customer_window.showMaximized()
             self._customer_window.raise_()
             self._customer_window.activateWindow()
@@ -1534,8 +1577,8 @@ class DashboardView(QMainWindow):
         table.setHorizontalHeaderLabels(["CUSTOMER", "ADDRESS", "PRODUCT", "STATUS"])
         table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter | Qt.AlignVCenter)
         table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Fixed)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Fixed)
+        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
+        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
         table.verticalHeader().setVisible(False)
         table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -1543,7 +1586,7 @@ class DashboardView(QMainWindow):
         table.setFocusPolicy(Qt.NoFocus)
         table.setShowGrid(False)
         table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         table.setWordWrap(True)
         table.setTextElideMode(Qt.ElideNone)
         table.setStyleSheet(f"""
@@ -1551,7 +1594,7 @@ class DashboardView(QMainWindow):
                 background:transparent;border:none;
                 font-family:'{INTER_FAMILY}';font-size:12px;color:{GRAY_5};outline:none;
             }}
-            QTableWidget::item{{padding:11px 18px;border-bottom:0.5px solid {GRAY_2};}}
+            QTableWidget::item{{padding:0;border-bottom:0.5px solid {GRAY_2};}}
             QTableWidget::item:selected{{background:{TEAL_PALE};color:{TEAL_DARK};}}
             QHeaderView::section{{
                 background:{WHITE};color:{GRAY_4};
@@ -1565,10 +1608,9 @@ class DashboardView(QMainWindow):
         table.setStyleSheet(table.styleSheet() + owner_scrollbar_qss())
 
         rows = self._dashboard_data.get("todays_deliveries", [])
-        table.setColumnWidth(0, 235)
-        table.setColumnWidth(1, 280)
-        table.setColumnWidth(2, 330)
-        table.setColumnWidth(3, 150)
+        preview_rows = rows[:10]
+        table.setColumnWidth(0, 260)
+        table.setColumnWidth(3, 140)
 
         status_style = {
             "DELIVERED":  (GREEN_BG,   GREEN),
@@ -1577,12 +1619,13 @@ class DashboardView(QMainWindow):
             "CANCELLED":  (RED_BG,     RED),
         }
 
-        table.setRowCount(len(rows))
-        for i, row in enumerate(rows):
+        table.setRowCount(len(preview_rows))
+        for i, row in enumerate(preview_rows):
             name = self._text(row.get("customer_name"))
             phone = self._text(row.get("contact"))
             addr = self._text(row.get("address"))
             prod = self._text(row.get("product_summary"), fallback="-")
+            product_items = self._split_delivery_products(prod)
             status = self._text(row.get("status"), fallback="PENDING").upper()
 
             # Customer cell — name + phone
@@ -1590,75 +1633,136 @@ class DashboardView(QMainWindow):
             cust_w.setStyleSheet("background:transparent;border:none;")
             cw_lay = QVBoxLayout(cust_w)
             cw_lay.setContentsMargins(12, 8, 12, 8)
-            cw_lay.setSpacing(1)
-            cw_lay.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            cw_lay.setSpacing(2)
+            cw_lay.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
             n = QLabel(name)
             n.setFont(inter(12, QFont.Medium))
             n.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-            n.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            n.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
             p = QLabel(phone)
             p.setFont(inter(11))
             p.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-            p.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            p.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
             cw_lay.addWidget(n)
             cw_lay.addWidget(p)
-            cw_lay.addStretch()
             table.setCellWidget(i, 0, cust_w)
 
-            for col, text in [(1, addr), (2, prod)]:
-                text_host = QWidget()
-                text_host.setStyleSheet("background:transparent;border:none;")
-                text_lay = QVBoxLayout(text_host)
-                text_lay.setContentsMargins(12, 10, 12, 10)
-                text_lay.setSpacing(0)
-                text_lay.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+            addr_host = QWidget()
+            addr_host.setStyleSheet("background:transparent;border:none;")
+            addr_lay = QVBoxLayout(addr_host)
+            addr_lay.setContentsMargins(12, 8, 12, 8)
+            addr_lay.setSpacing(0)
+            addr_lay.setAlignment(Qt.AlignCenter)
 
-                text_lbl = QLabel(text)
-                text_lbl.setFont(inter(12))
-                text_lbl.setWordWrap(True)
-                text_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
-                text_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-                text_lbl.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+            addr_lbl = QLabel(addr)
+            addr_lbl.setFont(inter(12))
+            addr_lbl.setWordWrap(True)
+            addr_lbl.setAlignment(Qt.AlignCenter)
+            addr_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            addr_lbl.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
 
-                text_lay.addWidget(text_lbl)
-                text_lay.addStretch()
-                table.setCellWidget(i, col, text_host)
+            addr_lay.addWidget(addr_lbl)
+            table.setCellWidget(i, 1, addr_host)
+
+            prod_host = QWidget()
+            prod_host.setStyleSheet("background:transparent;border:none;")
+            prod_lay = QVBoxLayout(prod_host)
+            prod_lay.setContentsMargins(12, 8, 12, 8)
+            prod_lay.setSpacing(0)
+            prod_lay.setAlignment(Qt.AlignCenter)
+
+            item_count = len(product_items)
+            count_text = f"{item_count} item" if item_count == 1 else f"{item_count} items"
+            count_lbl = QLabel(count_text if product_items else "No items")
+            count_lbl.setFont(inter(10, QFont.DemiBold))
+            count_lbl.setCursor(Qt.PointingHandCursor if product_items else Qt.ArrowCursor)
+            count_lbl.setStyleSheet(
+                f"color:{TEAL_DARK};background:{TEAL_PALE};border:1px solid {TEAL_PALE2};"
+                "border-radius:10px;padding:3px 10px;"
+            )
+            count_lbl.setAlignment(Qt.AlignCenter)
+            count_lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            count_lbl.setToolTip(self._delivery_products_tooltip(product_items))
+            prod_lay.addWidget(count_lbl, 0, Qt.AlignCenter)
+
+            prod_host.setToolTip(self._delivery_products_tooltip(product_items))
+            table.setCellWidget(i, 2, prod_host)
 
             # Status pill
             bg, fg = status_style.get(status, (GRAY_2, GRAY_5))
             pill = QLabel(status)
             pill.setFont(inter(10, QFont.DemiBold))
             pill.setAlignment(Qt.AlignCenter)
-            pill.setFixedHeight(22)
+            pill.setFixedHeight(26)
             pill.setStyleSheet(f"""
                 background:{bg};color:{fg};
-                border-radius:11px;padding:3 12px;
+                border-radius:13px;padding:4px 12px;
                 letter-spacing:0.5px;border:none;
             """)
             cell = QWidget()
             cell.setStyleSheet("background:transparent;border:none;")
             cl = QHBoxLayout(cell)
-            cl.setContentsMargins(12, 0, 12, 0)
+            cl.setContentsMargins(12, 8, 12, 8)
             cl.setAlignment(Qt.AlignCenter)
             cl.addWidget(pill, alignment=Qt.AlignCenter)
             table.setCellWidget(i, 3, cell)
 
-        for i in range(len(rows)):
+        for i in range(len(preview_rows)):
             table.resizeRowToContents(i)
-            table.setRowHeight(i, max(88, table.rowHeight(i)))
+            table.setRowHeight(i, max(68, min(84, table.rowHeight(i))))
 
-        table.setMinimumHeight(max(320, 58 + sum(table.rowHeight(i) for i in range(len(rows)))))
+        table.setToolTipDuration(0)
+        table.setMinimumHeight(max(320, 58 + sum(table.rowHeight(i) for i in range(len(preview_rows)))))
 
-        if not rows:
-            table.setRowCount(1)
-            table.setSpan(0, 0, 1, 4)
-            empty_item = QTableWidgetItem("No deliveries scheduled today")
-            empty_item.setFont(inter(12))
-            empty_item.setForeground(QColor(GRAY_4))
-            empty_item.setTextAlignment(Qt.AlignCenter)
-            table.setItem(0, 0, empty_item)
+        empty_view = QWidget()
+        empty_view.setStyleSheet("background:transparent;border:none;")
+        empty_lay = QVBoxLayout(empty_view)
+        empty_lay.setContentsMargins(0, 28, 0, 28)
+        empty_lay.setSpacing(8)
+        empty_lay.setAlignment(Qt.AlignCenter)
 
-        lay.addWidget(table)
+        empty_image = QLabel()
+        empty_image.setAlignment(Qt.AlignCenter)
+        empty_image.setStyleSheet("background:transparent;border:none;")
+        empty_image.setFixedSize(230, 145)
+        empty_pixmap = QPixmap(NO_SCHEDULE_IMAGE)
+        if not empty_pixmap.isNull():
+            scale = self.devicePixelRatio()
+            target_w = int(230 * scale)
+            target_h = int(145 * scale)
+            scaled = empty_pixmap.scaled(
+                target_w,
+                target_h,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            scaled.setDevicePixelRatio(scale)
+            empty_image.setPixmap(scaled)
+
+        empty_title = QLabel("No deliveries scheduled today")
+        empty_title.setFont(playfair(16, QFont.Medium))
+        empty_title.setAlignment(Qt.AlignCenter)
+        empty_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+        empty_sub = QLabel("New schedules will appear here once deliveries are created.")
+        empty_sub.setFont(inter(11))
+        empty_sub.setAlignment(Qt.AlignCenter)
+        empty_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+
+        empty_lay.addWidget(empty_image, 0, Qt.AlignCenter)
+        empty_lay.addWidget(empty_title, 0, Qt.AlignCenter)
+        empty_lay.addWidget(empty_sub, 0, Qt.AlignCenter)
+
+        table_stack = QStackedWidget()
+        table_stack.addWidget(table)
+        table_stack.addWidget(empty_view)
+        table_stack.setCurrentWidget(table if preview_rows else empty_view)
+
+        if not preview_rows:
+            table.setRowCount(0)
+            table.setMinimumHeight(0)
+
+        lay.addWidget(table_stack)
         return card
 
     # ── Quick actions ─────────────────────────────────────────────────────────
@@ -1786,15 +1890,16 @@ class DashboardView(QMainWindow):
         b_lay.setSpacing(0)
 
         items = self._dashboard_data.get("unpaid_deliveries", [])
+        preview_items = items[:6]
 
-        if not items:
+        if not preview_items:
             empty = QLabel("No unpaid deliveries")
             empty.setFont(inter(12))
             empty.setAlignment(Qt.AlignCenter)
             empty.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;padding:28px 0;")
             b_lay.addWidget(empty)
 
-        for i, item in enumerate(items):
+        for i, item in enumerate(preview_items):
             name = self._text(item.get("customer_name"))
             prod = self._text(item.get("product_summary"), fallback="-")
             amt = self._money(item.get("total_amount"), item.get("total_amount_fmt"))
@@ -1830,7 +1935,7 @@ class DashboardView(QMainWindow):
             r_lay.addWidget(amount)
             b_lay.addWidget(row)
 
-            if i < len(items) - 1:
+            if i < len(preview_items) - 1:
                 b_lay.addWidget(HDivider(GRAY_2))
 
         lay.addWidget(body)

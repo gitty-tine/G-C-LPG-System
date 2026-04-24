@@ -7,7 +7,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from PySide6.QtCore import Qt, QTimer, QDate, QTime
-from PySide6.QtGui import QFont, QFontDatabase, QColor
+from PySide6.QtGui import QFont, QFontDatabase, QColor, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -41,6 +41,7 @@ BASE_DIR = PROJECT_ROOT
 FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
 MODERN_CHEVRON_ICON = os.path.join(BASE_DIR, "assets", "chevron_down_modern.svg")
 WHITE_CHEVRON_ICON = os.path.join(BASE_DIR, "assets", "chevron_down_white.svg")
+NO_TRANSACTIONS_IMAGE = os.path.join(BASE_DIR, "assets", "gnc_icon.png")
 
 TEAL = "#1A7A6E"
 TEAL_DARK = "#145F55"
@@ -507,8 +508,8 @@ class TransactionView(QWidget):
         self._status_filter.addItems(["All statuses", "Paid", "Unpaid"])
         self._status_filter.setFont(inter(11))
         self._status_filter.setFixedHeight(34)
-        self._status_filter.setMinimumWidth(130)
-        self._status_filter.setMaximumWidth(130)
+        self._status_filter.setMinimumWidth(160)
+        self._status_filter.setMaximumWidth(160)
         self._status_filter.currentIndexChanged.connect(self._apply_filter)
         self._status_filter.setStyleSheet(
             f"""
@@ -538,8 +539,8 @@ class TransactionView(QWidget):
         self._date_from.setDate(self._default_from_date())
         self._date_from.setFont(inter(11))
         self._date_from.setFixedHeight(34)
-        #self._date_from.setMinimumWidth(140)
-        self._date_from.setMaximumWidth(175)
+        self._date_from.setMinimumWidth(170)
+        self._date_from.setMaximumWidth(170)
         self._date_from.dateChanged.connect(self._on_date_from_changed)
 
         self._date_to = QDateEdit()
@@ -548,12 +549,12 @@ class TransactionView(QWidget):
         self._date_to.setDate(QDate.currentDate())
         self._date_to.setFont(inter(11))
         self._date_to.setFixedHeight(34)
-        #self._date_to.setMinimumWidth(140)
-        self._date_to.setMaximumWidth(175)
+        self._date_to.setMinimumWidth(170)
+        self._date_to.setMaximumWidth(170)
         self._date_to.dateChanged.connect(self._on_date_to_changed)
 
-        self._configure_date_edit(self._date_from, min_width=120)
-        self._configure_date_edit(self._date_to, min_width=120)
+        self._configure_date_edit(self._date_from, min_width=170)
+        self._configure_date_edit(self._date_to, min_width=170)
 
         from_lbl = QLabel("From")
         from_lbl.setFont(inter(10, QFont.Medium))
@@ -565,22 +566,17 @@ class TransactionView(QWidget):
 
         filters_row = QHBoxLayout()
         filters_row.setSpacing(10)
+        filters_row.addStretch()
         filters_row.addWidget(self._status_filter)
         filters_row.addWidget(from_lbl)
         filters_row.addWidget(self._date_from)
         filters_row.addWidget(to_lbl)
         filters_row.addWidget(self._date_to)
-        filters_row.addStretch()
-
-        right = QVBoxLayout()
-        right.setSpacing(10)
-        right.setContentsMargins(0, 0, 0, 0)
-        right.addLayout(filters_row)
 
         header_row.addLayout(left)
         header_row.addStretch()
-        header_row.addLayout(right)
         content_lay.addLayout(header_row)
+        content_lay.addLayout(filters_row)
 
         summary_row = QHBoxLayout()
         summary_row.setSpacing(12)
@@ -645,6 +641,14 @@ class TransactionView(QWidget):
                 color:{GRAY_5};
                 border-bottom:1px solid #f3f5f4;
             }}
+            QToolTip {{
+                background:{WHITE};
+                color:{GRAY_5};
+                border:1px solid {GRAY_2};
+                padding:6px 8px;
+                font-family:{INTER_FAMILY};
+                font-size:12px;
+            }}
             QScrollBar:horizontal {{
                 border:none;
                 background:{GRAY_1};
@@ -682,16 +686,38 @@ class TransactionView(QWidget):
         empty_lay.setContentsMargins(0, 36, 0, 36)
         empty_lay.setAlignment(Qt.AlignCenter)
 
-        empty_title = QLabel("No transactions found")
-        empty_title.setFont(playfair(16, QFont.Medium))
-        empty_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        empty_image = QLabel()
+        empty_image.setAlignment(Qt.AlignCenter)
+        empty_image.setStyleSheet("background:transparent;border:none;")
+        empty_image.setFixedSize(230, 145)
+        empty_pixmap = QPixmap(NO_TRANSACTIONS_IMAGE)
+        if not empty_pixmap.isNull():
+            scale = self.devicePixelRatio()
+            target_w = int(230 * scale)
+            target_h = int(145 * scale)
+            scaled = empty_pixmap.scaled(
+                target_w,
+                target_h,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            scaled.setDevicePixelRatio(scale)
+            empty_image.setPixmap(scaled)
 
-        empty_desc = QLabel("Transactions matching the selected filters will appear here.")
-        empty_desc.setFont(inter(12))
-        empty_desc.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+        self._empty_title = QLabel("No transactions yet")
+        self._empty_title.setFont(playfair(16, QFont.Medium))
+        self._empty_title.setAlignment(Qt.AlignCenter)
+        self._empty_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
-        empty_lay.addWidget(empty_title)
-        empty_lay.addWidget(empty_desc)
+        self._empty_desc = QLabel("Transaction records will appear here once payments or delivery transactions are added.")
+        self._empty_desc.setFont(inter(12))
+        self._empty_desc.setAlignment(Qt.AlignCenter)
+        self._empty_desc.setWordWrap(True)
+        self._empty_desc.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+
+        empty_lay.addWidget(empty_image, 0, Qt.AlignCenter)
+        empty_lay.addWidget(self._empty_title)
+        empty_lay.addWidget(self._empty_desc)
 
         self._stack = QStackedWidget()
         self._stack.addWidget(self._table)
@@ -850,7 +876,8 @@ class TransactionView(QWidget):
         self._refresh_timer.timeout.connect(self._refresh_if_visible)
 
     def _default_from_date(self):
-        return QDate.currentDate().addYears(-self.DEFAULT_LOOKBACK_YEARS)
+        today = QDate.currentDate()
+        return QDate(today.year(), today.month(), 1)
 
     def _start_refresh_timer(self):
         if hasattr(self, "_refresh_timer") and not self._refresh_timer.isActive():
@@ -872,6 +899,24 @@ class TransactionView(QWidget):
             return qdate.toPyDate()
 
         return to_pydate(self._date_from.date()), to_pydate(self._date_to.date())
+
+    def reset_view_state(self):
+        today = QDate.currentDate()
+        first_of_month = QDate(today.year(), today.month(), 1)
+
+        self._status_filter.blockSignals(True)
+        self._date_from.blockSignals(True)
+        self._date_to.blockSignals(True)
+
+        self._status_filter.setCurrentIndex(0)
+        self._date_from.setDate(first_of_month)
+        self._date_to.setDate(today)
+
+        self._status_filter.blockSignals(False)
+        self._date_from.blockSignals(False)
+        self._date_to.blockSignals(False)
+
+        self.reload_data()
 
     def reload_data(self):
         if not self._controller or self._is_reloading:
@@ -923,6 +968,16 @@ class TransactionView(QWidget):
         self._metric_unpaid.value_lbl.setText(self._format_amount(unpaid_total))
 
         if not self._filtered_transactions:
+            if not self._all_transactions:
+                self._empty_title.setText("No transactions yet")
+                self._empty_desc.setText(
+                    "Transaction records will appear here once payments or delivery transactions are added."
+                )
+            else:
+                self._empty_title.setText("No matching transactions")
+                self._empty_desc.setText(
+                    "No transaction records match the selected status or date range. Try adjusting the filters to see more results."
+                )
             self._stack.setCurrentWidget(self._empty_state)
             self._table.setRowCount(0)
             return
@@ -936,7 +991,11 @@ class TransactionView(QWidget):
             self._set_item(row_index, 2, transaction.get("product_summary", ""))
             self._set_item(row_index, 3, self._format_amount(transaction.get("total_amount")))
             self._set_status_pill(row_index, 4, transaction.get("payment_status", ""))
-            self._set_item(row_index, 5, self._format_paid_at(transaction.get("paid_at"), transaction.get("payment_status")))
+            self._set_item(
+                row_index,
+                5,
+                self._format_paid_at(transaction.get("paid_at"), transaction.get("payment_status")),
+            )
 
             action_widget = QWidget()
             action_layout = QHBoxLayout(action_widget)
@@ -989,6 +1048,7 @@ class TransactionView(QWidget):
         item = QTableWidgetItem(str(value))
         item.setFont(inter(11))
         item.setTextAlignment(Qt.AlignCenter)
+        item.setToolTip(str(value))
         self._table.setItem(row, column, item)
 
     def _set_status_pill(self, row, column, value):

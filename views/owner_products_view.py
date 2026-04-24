@@ -6,14 +6,13 @@ if PROJECT_ROOT not in sys.path:
 	sys.path.insert(0, PROJECT_ROOT)
 
 from views.admin_dashboard_view import owner_scrollbar_qss
-from controllers.owner_product_controller import OwnerProductController
 
-from PySide6.QtCore import QDate, QEvent, QTime, QTimer, Qt, QSize
-from PySide6.QtGui import QFont, QFontDatabase, QPixmap
+from PySide6.QtCore import QDate, QEvent, QTime, QTimer, Qt, QSize, QPoint
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPixmap
 from PySide6.QtWidgets import (
 	QApplication,
-	QDialog,
 	QFrame,
+	QGraphicsDropShadowEffect,
 	QGridLayout,
 	QHBoxLayout,
 	QLabel,
@@ -23,7 +22,6 @@ from PySide6.QtWidgets import (
 	QScrollArea,
 	QSizePolicy,
 	QStackedWidget,
-	QFormLayout,
 	QVBoxLayout,
 	QWidget,
 )
@@ -31,6 +29,7 @@ from PySide6.QtWidgets import (
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
 PRODUCT_ICON_PATH = os.path.join(BASE_DIR, "assets", "lpg_product_icon.png")
+NO_PRODUCTS_IMAGE = os.path.join(BASE_DIR, "assets", "gnc_icon.png")
 
 TEAL = "#1A7A6E"
 TEAL_DARK = "#145F55"
@@ -83,174 +82,376 @@ def inter(size, weight=QFont.Normal):
 	return font
 
 
-class ProductEditorDialog(QDialog):
-	def __init__(self, parent=None, product=None):
+# ── Reusable field builder (mirrors customer_view.make_field) ─────────────────
+def _make_field(label_text, placeholder, required=True):
+	grp = QWidget()
+	grp.setStyleSheet("background:transparent;border:none;")
+	g_lay = QVBoxLayout(grp)
+	g_lay.setContentsMargins(0, 0, 0, 0)
+	g_lay.setSpacing(8)
+
+	row = QHBoxLayout()
+	row.setSpacing(4)
+
+	lbl = QLabel(label_text.upper())
+	lbl.setFont(inter(10, QFont.DemiBold))
+	lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.2px;background:transparent;border:none;")
+	row.addWidget(lbl)
+
+	if required:
+		req = QLabel("*")
+		req.setFont(inter(11, QFont.DemiBold))
+		req.setStyleSheet("color:#c0392b;background:transparent;border:none;")
+		row.addWidget(req)
+	row.addStretch()
+	g_lay.addLayout(row)
+
+	inp = QLineEdit()
+	inp.setPlaceholderText(placeholder)
+	inp.setFont(inter(12))
+	inp.setFixedHeight(36)
+	inp.setStyleSheet(f"""
+		QLineEdit{{
+			color:{GRAY_5};background:{WHITE};
+			border:1px solid {GRAY_2};border-radius:4px;
+			padding:0 10px;
+		}}
+		QLineEdit:focus{{border-color:{TEAL};}}
+		QLineEdit[error="true"]{{
+			border-color:#cf4d4d;background:#fff7f7;
+		}}
+		QLineEdit[error="true"]:focus{{border-color:#cf4d4d;}}
+	""")
+
+	err = QLabel("")
+	err.setFont(inter(9))
+	err.setStyleSheet("color:#cf4d4d;background:transparent;border:none;")
+	err.setContentsMargins(2, 2, 0, 0)
+	err.setWordWrap(True)
+	err.hide()
+
+	g_lay.addWidget(inp)
+	g_lay.addWidget(err)
+	return grp, inp, err
+
+
+# ── Product form modal overlay ────────────────────────────────────────────────
+class ProductFormModal(QWidget):
+	"""
+	Drop-in overlay modal for Add / Edit product.
+	Mirrors CustomerFormModal's overlay pattern exactly.
+	"""
+
+	def __init__(self, parent=None):
 		super().__init__(parent)
-		self._product = product or {}
+		self.setStyleSheet("background:rgba(0,0,0,100);")
+		self._mode = "add"
+		self._submit_callback = None
+		self._product = {}
 		self._drag_active = False
-		self._drag_offset = None
-		self.setWindowTitle("Product Form")
-		self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-		self.setModal(True)
-		self.setFixedWidth(500)
-		self.setStyleSheet(
-			f"""
-			QDialog {{
-				background: {WHITE};
-			}}
-			QLineEdit {{
-				background: {WHITE};
-				border: 1px solid #d6e2df;
-				border-radius: 8px;
-				padding: 9px 11px;
-				color: {GRAY_5};
-			}}
-			QLineEdit:focus {{
-				border-color: {TEAL};
-				background: {WHITE};
-			}}
-			QLabel {{
-				color: {GRAY_5};
-				background: transparent;
-			}}
-			QPushButton#PrimaryBtn {{
-				color: {WHITE};
-				background: {TEAL_DARK};
-				border: 1px solid {TEAL_DARK};
-				border-radius: 8px;
-				padding: 9px 16px;
-			}}
-			QPushButton#PrimaryBtn:hover {{
-				background: {TEAL};
-				border-color: {TEAL};
-			}}
-			QPushButton#GhostBtn {{
-				color: {GRAY_5};
-				background: {WHITE};
-				border: 1px solid #d6dddb;
-				border-radius: 8px;
-				padding: 9px 16px;
-			}}
-			QPushButton#GhostBtn:hover {{
-				background: #f3f6f5;
-			}}
-		"""
-		)
+		self._drag_offset = QPoint()
+		self.hide()
 
-		root = QVBoxLayout(self)
-		root.setContentsMargins(24, 22, 24, 20)
-		root.setSpacing(14)
+		# ── Card ──────────────────────────────────────────────────────────────
+		self._card = QFrame(self)
+		self._card.setObjectName("productFormCard")
+		self._card.setFixedWidth(520)
+		self._card.setStyleSheet(f"""
+			QFrame#productFormCard{{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:8px;
+			}}
+		""")
+		shadow = QGraphicsDropShadowEffect(self._card)
+		shadow.setBlurRadius(40)
+		shadow.setOffset(0, 10)
+		shadow.setColor(QColor(0, 0, 0, 60))
+		self._card.setGraphicsEffect(shadow)
 
+		card_lay = QVBoxLayout(self._card)
+		card_lay.setContentsMargins(0, 0, 0, 0)
+		card_lay.setSpacing(0)
+
+		# ── Header ────────────────────────────────────────────────────────────
 		header = QWidget()
-		header.setStyleSheet("background:transparent;border:none;")
-		header.setCursor(Qt.SizeAllCursor)
-		header.installEventFilter(self)
-		header_lay = QVBoxLayout(header)
-		header_lay.setContentsMargins(0, 0, 0, 0)
-		header_lay.setSpacing(4)
+		header.setStyleSheet(
+			f"background:{TEAL_DARK};border:none;"
+			"border-top-left-radius:8px;border-top-right-radius:8px;"
+		)
+		h_lay = QVBoxLayout(header)
+		h_lay.setContentsMargins(22, 16, 22, 14)
+		h_lay.setSpacing(3)
 
-		title = QLabel("{0} Product".format("Edit" if self._product else "Add"))
-		title.setFont(playfair(20, QFont.Medium))
-		title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-		title.installEventFilter(self)
+		self._modal_title = QLabel("Add Product")
+		self._modal_title.setFont(playfair(16, QFont.DemiBold))
+		self._modal_title.setStyleSheet(f"color:{WHITE};background:transparent;border:none;")
 
-		subtitle = QLabel("Fill out the product profile and pricing details.")
-		subtitle.setWordWrap(True)
-		subtitle.setFont(inter(10))
-		subtitle.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-		subtitle.installEventFilter(self)
+		self._modal_subtitle = QLabel("Fill in the product details and pricing information.")
+		self._modal_subtitle.setFont(inter(11))
+		self._modal_subtitle.setStyleSheet("color:#a8e6df;background:transparent;border:none;")
 
-		header_lay.addWidget(title)
-		header_lay.addWidget(subtitle)
-		self._drag_widgets = (header, title, subtitle)
-		root.addWidget(header)
+		h_lay.addWidget(self._modal_title)
+		h_lay.addWidget(self._modal_subtitle)
+		card_lay.addWidget(header)
 
-		form = QFormLayout()
-		form.setVerticalSpacing(10)
-		form.setHorizontalSpacing(12)
-		form.setContentsMargins(0, 8, 0, 4)
-		form.setLabelAlignment(Qt.AlignLeft)
+		# ── Body ──────────────────────────────────────────────────────────────
+		body = QWidget()
+		body.setStyleSheet("background:transparent;border:none;")
+		b_lay = QVBoxLayout(body)
+		b_lay.setContentsMargins(22, 20, 22, 20)
+		b_lay.setSpacing(14)
 
-		self.name_edit = QLineEdit(self._product.get("name", ""))
-		self.name_edit.setPlaceholderText("Product name")
-		self.name_edit.setFont(inter(11))
+		f1, self.inp_name, self.err_name = _make_field("Product Name", "e.g. Petron Gasul 11kg")
+		f2, self.inp_size, self.err_size = _make_field("Cylinder Size", "e.g. 11kg, 22kg, 50kg")
+		f3, self.inp_refill, self.err_refill = _make_field("Refill Price", "e.g. 950.00")
+		f4, self.inp_new_tank, self.err_new_tank = _make_field("New Tank Price", "e.g. 3200.00")
 
-		self.size_edit = QLineEdit(self._product.get("cylinder_size", self._infer_size(self._product.get("name", ""))))
-		self.size_edit.setPlaceholderText("e.g. 11kg, 22kg, 50kg")
-		self.size_edit.setFont(inter(11))
+		# Clear error on typing
+		self.inp_name.textChanged.connect(lambda _: self._clear_field_error(self.inp_name, self.err_name))
+		self.inp_size.textChanged.connect(lambda _: self._clear_field_error(self.inp_size, self.err_size))
+		self.inp_refill.textChanged.connect(lambda _: self._clear_field_error(self.inp_refill, self.err_refill))
+		self.inp_new_tank.textChanged.connect(lambda _: self._clear_field_error(self.inp_new_tank, self.err_new_tank))
 
-		self.refill_edit = QLineEdit(f"{float(self._product.get('refill_price', 0) or 0):.2f}")
-		self.refill_edit.setPlaceholderText("e.g. 950.00")
-		self.refill_edit.setFont(inter(11))
+		for f in [f1, f2, f3, f4]:
+			b_lay.addWidget(f)
 
-		self.new_tank_edit = QLineEdit(f"{float(self._product.get('new_tank_price', 0) or 0):.2f}")
-		self.new_tank_edit.setPlaceholderText("e.g. 3200.00")
-		self.new_tank_edit.setFont(inter(11))
+		self._form_err = QLabel("")
+		self._form_err.setFont(inter(10))
+		self._form_err.setStyleSheet("color:#cf4d4d;background:transparent;border:none;")
+		self._form_err.setWordWrap(True)
+		self._form_err.hide()
+		b_lay.addWidget(self._form_err)
 
-		name_lbl = QLabel("Product Name")
-		name_lbl.setFont(inter(10, QFont.DemiBold))
-		size_lbl = QLabel("Cylinder Size")
-		size_lbl.setFont(inter(10, QFont.DemiBold))
-		refill_lbl = QLabel("Refill Price")
-		refill_lbl.setFont(inter(10, QFont.DemiBold))
-		new_tank_lbl = QLabel("New Tank Price")
-		new_tank_lbl.setFont(inter(10, QFont.DemiBold))
+		card_lay.addWidget(body)
 
-		form.addRow(name_lbl, self.name_edit)
-		form.addRow(size_lbl, self.size_edit)
-		form.addRow(refill_lbl, self.refill_edit)
-		form.addRow(new_tank_lbl, self.new_tank_edit)
-		root.addLayout(form)
+		# ── Footer ────────────────────────────────────────────────────────────
+		footer = QWidget()
+		footer.setStyleSheet(f"background:{WHITE};border:none;border-top:1px solid {GRAY_2};")
+		f_lay = QHBoxLayout(footer)
+		f_lay.setContentsMargins(22, 14, 22, 16)
+		f_lay.setSpacing(10)
+		f_lay.addStretch()
 
-		actions = QHBoxLayout()
-		actions.setContentsMargins(0, 2, 0, 0)
-		actions.setSpacing(10)
-		actions.addStretch()
+		self._cancel_btn = QPushButton("Cancel")
+		self._cancel_btn.setCursor(Qt.PointingHandCursor)
+		self._cancel_btn.setFont(inter(12, QFont.Medium))
+		self._cancel_btn.setFixedHeight(36)
+		self._cancel_btn.setStyleSheet(f"""
+			QPushButton{{
+				color:{GRAY_5};background:{WHITE};
+				border:1px solid {GRAY_3};border-radius:6px;padding:0 18px;
+			}}
+			QPushButton:hover{{border-color:{TEAL};color:{TEAL_DARK};}}
+		""")
+		self._cancel_btn.clicked.connect(self.hide)
 
-		cancel_btn = QPushButton("Cancel")
-		cancel_btn.setObjectName("GhostBtn")
-		cancel_btn.setFont(inter(10, QFont.Medium))
-		cancel_btn.clicked.connect(self.reject)
+		self._save_btn = QPushButton("Save Product")
+		self._save_btn.setCursor(Qt.PointingHandCursor)
+		self._save_btn.setFont(inter(12, QFont.Medium))
+		self._save_btn.setFixedHeight(36)
+		self._save_btn.setStyleSheet(f"""
+			QPushButton{{
+				color:{WHITE};background:{TEAL};
+				border:none;border-radius:6px;padding:0 18px;
+			}}
+			QPushButton:hover{{background:{TEAL_DARK};}}
+		""")
+		self._save_btn.clicked.connect(self._on_save)
 
-		save_btn = QPushButton("Save Product")
-		save_btn.setObjectName("PrimaryBtn")
-		save_btn.setFont(inter(10, QFont.Medium))
-		save_btn.clicked.connect(self.accept)
+		f_lay.addWidget(self._cancel_btn)
+		f_lay.addWidget(self._save_btn)
+		card_lay.addWidget(footer)
 
-		actions.addWidget(cancel_btn)
-		actions.addWidget(save_btn)
-		root.addLayout(actions)
+	# ── Public API ────────────────────────────────────────────────────────────
+	def open_add(self, callback=None):
+		self._mode = "add"
+		self._submit_callback = callback
+		self._product = {}
+		self._modal_title.setText("Add Product")
+		self._modal_subtitle.setText("Fill in the product details and pricing information.")
+		self._save_btn.setText("Save Product")
+		self._clear_fields()
+		self._clear_all_errors()
+		self._show_centered()
 
-	def product_data(self):
-		refill_price = self._parse_price(self.refill_edit.text())
-		new_tank_price = self._parse_price(self.new_tank_edit.text())
-		return {
+	def open_edit(self, product, callback=None):
+		self._mode = "edit"
+		self._submit_callback = callback
+		self._product = dict(product)
+		self._modal_title.setText("Edit Product")
+		self._modal_subtitle.setText("Update the product details and pricing information.")
+		self._save_btn.setText("Save Changes")
+		self._clear_all_errors()
+
+		self.inp_name.setText(product.get("name", ""))
+		self.inp_size.setText(product.get("cylinder_size", self._infer_size(product.get("name", ""))))
+		self.inp_refill.setText(f"{float(product.get('refill_price', 0) or 0):.2f}")
+		self.inp_new_tank.setText(f"{float(product.get('new_tank_price', 0) or 0):.2f}")
+		self._show_centered()
+
+	def set_submit_callback(self, callback):
+		"""Legacy compat — prefer passing callback to open_add / open_edit."""
+		self._submit_callback = callback
+
+	# ── Layout helpers ────────────────────────────────────────────────────────
+	def _show_centered(self):
+		if self.parent():
+			self.setGeometry(self.parent().rect())
+		self._refresh_card_geometry()
+		self.show()
+		self.raise_()
+
+	def _refresh_card_geometry(self):
+		if not self._card:
+			return
+		self._card.layout().activate()
+		self._card.adjustSize()
+		x = max(0, (self.width() - self._card.width()) // 2)
+		y = max(0, (self.height() - self._card.height()) // 2)
+		self._card.move(x, y)
+
+	def resizeEvent(self, event):
+		if self.parent():
+			self.setGeometry(self.parent().rect())
+		if self._card:
+			self._refresh_card_geometry()
+		super().resizeEvent(event)
+
+	# ── Drag support (header area) ────────────────────────────────────────────
+	def mousePressEvent(self, event):
+		pos = event.position().toPoint()
+		if not self._card.geometry().contains(pos):
+			self.hide()
+			return
+		card_pos = pos - self._card.pos()
+		if event.button() == Qt.LeftButton and card_pos.y() <= 72:
+			self._drag_active = True
+			self._drag_offset = card_pos
+			event.accept()
+			return
+		super().mousePressEvent(event)
+
+	def mouseMoveEvent(self, event):
+		if self._drag_active:
+			pos = event.position().toPoint()
+			new_pos = pos - self._drag_offset
+			max_x = max(0, self.width() - self._card.width())
+			max_y = max(0, self.height() - self._card.height())
+			self._card.move(
+				max(0, min(new_pos.x(), max_x)),
+				max(0, min(new_pos.y(), max_y)),
+			)
+			event.accept()
+			return
+		super().mouseMoveEvent(event)
+
+	def mouseReleaseEvent(self, event):
+		if event.button() == Qt.LeftButton:
+			self._drag_active = False
+		super().mouseReleaseEvent(event)
+
+	# ── Validation & submit ───────────────────────────────────────────────────
+	def _on_save(self):
+		self._clear_all_errors()
+		errors = {}
+
+		if not self.inp_name.text().strip():
+			errors["name"] = "Product name is required."
+		if not self.inp_size.text().strip():
+			errors["cylinder_size"] = "Cylinder size is required."
+		try:
+			self._parse_price(self.inp_refill.text())
+		except ValueError:
+			errors["refill_price"] = "Refill price must be a valid number."
+		try:
+			self._parse_price(self.inp_new_tank.text())
+		except ValueError:
+			errors["new_tank_price"] = "New tank price must be a valid number."
+
+		if errors:
+			self._show_errors(errors)
+			return
+
+		data = {
 			"id": self._product.get("id"),
-			"name": self.name_edit.text().strip(),
-			"cylinder_size": self.size_edit.text().strip(),
-			"refill_price": refill_price,
-			"new_tank_price": new_tank_price,
+			"name": self.inp_name.text().strip(),
+			"cylinder_size": self.inp_size.text().strip(),
+			"refill_price": self._parse_price(self.inp_refill.text()),
+			"new_tank_price": self._parse_price(self.inp_new_tank.text()),
 		}
 
-	def accept(self):
-		if not self.name_edit.text().strip():
-			QMessageBox.warning(self, "Missing Data", "Product name is required.")
-			return
-		if not self.size_edit.text().strip():
-			QMessageBox.warning(self, "Missing Data", "Cylinder size is required.")
-			return
-		try:
-			self._parse_price(self.refill_edit.text())
-		except ValueError:
-			QMessageBox.warning(self, "Invalid Data", "Refill price must be a valid number.")
-			return
-		try:
-			self._parse_price(self.new_tank_edit.text())
-		except ValueError:
-			QMessageBox.warning(self, "Invalid Data", "New tank price must be a valid number.")
-			return
-		super().accept()
+		if self._submit_callback is not None:
+			ok, response = self._submit_callback(data)
+			if not ok:
+				self._show_errors(response or {})
+				return
 
+		self.hide()
+
+	def _show_errors(self, errors):
+		errors = errors or {}
+		self._set_field_error(self.inp_name, self.err_name, errors.get("name"))
+		self._set_field_error(self.inp_size, self.err_size, errors.get("cylinder_size"))
+		self._set_field_error(self.inp_refill, self.err_refill, errors.get("refill_price"))
+		self._set_field_error(self.inp_new_tank, self.err_new_tank, errors.get("new_tank_price"))
+		form_err = errors.get("form")
+		if form_err:
+			self._form_err.setText(str(form_err))
+			self._form_err.show()
+		else:
+			self._form_err.clear()
+			self._form_err.hide()
+		self._refresh_card_geometry()
+
+	def _set_field_error(self, editor, error_label, message):
+		has_error = bool(message)
+		editor.setProperty("error", has_error)
+		editor.style().unpolish(editor)
+		editor.style().polish(editor)
+		if has_error:
+			error_label.setText(str(message))
+			error_label.show()
+		else:
+			error_label.clear()
+			error_label.hide()
+		self._refresh_card_geometry()
+
+	def _clear_field_error(self, editor, error_label):
+		self._set_field_error(editor, error_label, "")
+
+	def _clear_all_errors(self):
+		for editor, err in [
+			(self.inp_name, self.err_name),
+			(self.inp_size, self.err_size),
+			(self.inp_refill, self.err_refill),
+			(self.inp_new_tank, self.err_new_tank),
+		]:
+			self._clear_field_error(editor, err)
+		self._form_err.clear()
+		self._form_err.hide()
+		self._refresh_card_geometry()
+
+	def _clear_fields(self):
+		self.inp_name.clear()
+		self.inp_size.clear()
+		self.inp_refill.setText("0.00")
+		self.inp_new_tank.setText("0.00")
+
+	def reset_state(self):
+		self._mode = "add"
+		self._submit_callback = None
+		self._product = {}
+		self._drag_active = False
+		self._drag_offset = QPoint()
+		self._modal_title.setText("Add Product")
+		self._modal_subtitle.setText("Fill in the product details and pricing information.")
+		self._save_btn.setText("Save Product")
+		self._clear_fields()
+		self._clear_all_errors()
+		self.hide()
+
+	# ── Helpers ───────────────────────────────────────────────────────────────
 	def _parse_price(self, text):
 		value = str(text).strip().replace("PHP", "").replace("Php", "").replace(",", "")
 		if not value:
@@ -264,23 +465,8 @@ class ProductEditorDialog(QDialog):
 				return kg.upper()
 		return ""
 
-	def eventFilter(self, obj, event):
-		if obj is not None and event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-			if obj in self._drag_widgets:
-				self._drag_active = True
-				self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-				return True
-		if obj is not None and event.type() == QEvent.MouseMove and self._drag_active:
-			if event.buttons() & Qt.LeftButton:
-				self.move(event.globalPosition().toPoint() - self._drag_offset)
-				return True
-		if obj is not None and event.type() == QEvent.MouseButtonRelease and self._drag_active:
-			self._drag_active = False
-			self._drag_offset = None
-			return True
-		return super().eventFilter(obj, event)
 
-
+# ── Product card ──────────────────────────────────────────────────────────────
 class OwnerProductCard(QFrame):
 	def __init__(self, product, on_edit, on_delete=None, parent=None):
 		super().__init__(parent)
@@ -363,7 +549,6 @@ class OwnerProductCard(QFrame):
 		price_row.addWidget(refill_box)
 		price_row.addWidget(new_tank_box)
 
-		# Actions row (edit + delete)
 		btn_row = QHBoxLayout()
 		btn_row.setContentsMargins(0, 0, 0, 0)
 		btn_row.setSpacing(10)
@@ -452,7 +637,6 @@ class OwnerProductCard(QFrame):
 		for kg in ["50kg", "22kg", "11kg"]:
 			if kg in lowered:
 				return kg.upper()
-		# Fall back to exact cylinder_size if provided (e.g., "Superkalan", "5kg mini")
 		if lowered:
 			return str(text).upper()
 		return "LPG"
@@ -464,6 +648,166 @@ class OwnerProductCard(QFrame):
 			return "Php 0.00"
 
 
+# ── Delete confirmation (unchanged) ──────────────────────────────────────────
+class _DeleteDialog(QWidget):
+	"""Frameless overlay delete confirmation — mirrors DeleteConfirmModal pattern."""
+
+	def __init__(self, product, parent=None):
+		super().__init__(parent)
+		self._product = dict(product or {})
+		self.setStyleSheet("background:rgba(0,0,0,100);")
+		self._result = False
+		self._on_confirm = None
+		self._on_close = None
+		self._drag_active = False
+		self._drag_offset = QPoint()
+
+		self._card = QFrame(self)
+		self._card.setObjectName("delCard")
+		self._card.setFixedWidth(380)
+		self._card.setStyleSheet(f"""
+			QFrame#delCard{{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:12px;
+			}}
+			QLabel{{background:transparent;border:none;}}
+			QPushButton{{border:none;}}
+		""")
+		shadow = QGraphicsDropShadowEffect(self._card)
+		shadow.setBlurRadius(40)
+		shadow.setOffset(0, 10)
+		shadow.setColor(QColor(0, 0, 0, 60))
+		self._card.setGraphicsEffect(shadow)
+
+		c_lay = QVBoxLayout(self._card)
+		c_lay.setContentsMargins(20, 18, 20, 16)
+		c_lay.setSpacing(14)
+
+		title_lbl = QLabel(f"⚠️  Delete '{product.get('name', 'this product')}'?")
+		title_lbl.setFont(inter(13, QFont.DemiBold))
+		title_lbl.setStyleSheet(f"color:{TEAL_DARK};")
+
+		body_lbl = QLabel(
+			"This action cannot be undone. Products with existing delivery or transaction history cannot be deleted."
+		)
+		body_lbl.setWordWrap(True)
+		body_lbl.setFont(inter(11))
+		body_lbl.setStyleSheet(f"color:{GRAY_5};")
+
+		c_lay.addWidget(title_lbl)
+		c_lay.addWidget(body_lbl)
+		c_lay.addStretch()
+
+		btn_row = QHBoxLayout()
+		btn_row.setSpacing(10)
+
+		cancel_btn = QPushButton("Cancel")
+		cancel_btn.setObjectName("CancelBtn")
+		cancel_btn.setFont(inter(11, QFont.Medium))
+		cancel_btn.setFixedHeight(34)
+		cancel_btn.setCursor(Qt.PointingHandCursor)
+		cancel_btn.setStyleSheet(f"""
+			QPushButton{{
+				color:{TEAL_DARK};background:{TEAL_PALE};
+				border:1px solid #cde6e1;border-radius:7px;
+				min-width:110px;padding:0 16px;
+			}}
+			QPushButton:hover{{background:{TEAL_LIGHT};color:{WHITE};}}
+		""")
+		cancel_btn.clicked.connect(self._on_cancel)
+
+		delete_btn = QPushButton("Delete")
+		delete_btn.setObjectName("DeleteBtn")
+		delete_btn.setFont(inter(11, QFont.Medium))
+		delete_btn.setFixedHeight(34)
+		delete_btn.setCursor(Qt.PointingHandCursor)
+		delete_btn.setStyleSheet("""
+			QPushButton{
+				color:#8a1a1a;background:#fdeaea;
+				border:1px solid #f2c7c7;border-radius:7px;
+				min-width:110px;padding:0 16px;
+			}
+			QPushButton:hover{background:#f6cfcf;color:#ffffff;border-color:#e3a5a5;}
+		""")
+		delete_btn.clicked.connect(self._on_delete)
+
+		btn_row.addWidget(cancel_btn, 1, Qt.AlignLeft)
+		btn_row.addStretch()
+		btn_row.addWidget(delete_btn, 1, Qt.AlignRight)
+		c_lay.addLayout(btn_row)
+
+	def set_callbacks(self, on_confirm=None, on_close=None):
+		self._on_confirm = on_confirm
+		self._on_close = on_close
+
+	def show_centered(self):
+		if self.parent():
+			self.setGeometry(self.parent().rect())
+		self._card.adjustSize()
+		x = (self.width() - self._card.width()) // 2
+		y = (self.height() - self._card.height()) // 2
+		self._card.move(x, y)
+		self.show()
+		self.raise_()
+
+	def resizeEvent(self, event):
+		if self.parent():
+			self.setGeometry(self.parent().rect())
+		if self._card:
+			x = (self.width() - self._card.width()) // 2
+			y = (self.height() - self._card.height()) // 2
+			self._card.move(x, y)
+		super().resizeEvent(event)
+
+	def mousePressEvent(self, event):
+		pos = event.position().toPoint()
+		if not self._card.geometry().contains(pos):
+			self._on_cancel()
+			return
+		card_pos = pos - self._card.pos()
+		if event.button() == Qt.LeftButton and card_pos.y() <= 60:
+			self._drag_active = True
+			self._drag_offset = card_pos
+			event.accept()
+			return
+		super().mousePressEvent(event)
+
+	def mouseMoveEvent(self, event):
+		if self._drag_active:
+			pos = event.position().toPoint()
+			new_pos = pos - self._drag_offset
+			max_x = max(0, self.width() - self._card.width())
+			max_y = max(0, self.height() - self._card.height())
+			self._card.move(
+				max(0, min(new_pos.x(), max_x)),
+				max(0, min(new_pos.y(), max_y)),
+			)
+			event.accept()
+			return
+		super().mouseMoveEvent(event)
+
+	def mouseReleaseEvent(self, event):
+		if event.button() == Qt.LeftButton:
+			self._drag_active = False
+		super().mouseReleaseEvent(event)
+
+	def _on_cancel(self):
+		self._result = False
+		self.hide()
+		if callable(self._on_close):
+			self._on_close()
+
+	def _on_delete(self):
+		self._result = True
+		self.hide()
+		if callable(self._on_confirm):
+			self._on_confirm(self._product)
+		if callable(self._on_close):
+			self._on_close()
+
+
+# ── Products page ─────────────────────────────────────────────────────────────
 class OwnerProductsView(QWidget):
 	def __init__(self, parent=None, show_topbar=True, topbar_controls_only=False, controller=None):
 		super().__init__(parent)
@@ -594,19 +938,38 @@ class OwnerProductsView(QWidget):
 
 		self._empty_state = QWidget()
 		es_lay = QVBoxLayout(self._empty_state)
-		es_lay.setContentsMargins(0, 40, 0, 40)
+		es_lay.setContentsMargins(0, 36, 0, 36)
 		es_lay.setAlignment(Qt.AlignCenter)
 
-		es_title = QLabel("No products available")
-		es_title.setFont(playfair(16, QFont.Medium))
-		es_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+		empty_image = QLabel()
+		empty_image.setAlignment(Qt.AlignCenter)
+		empty_image.setStyleSheet("background:transparent;border:none;")
+		empty_image.setFixedSize(230, 145)
+		empty_pixmap = QPixmap(NO_PRODUCTS_IMAGE)
+		if not empty_pixmap.isNull():
+			scale = self.devicePixelRatio()
+			target_w = int(230 * scale)
+			target_h = int(145 * scale)
+			scaled = empty_pixmap.scaled(
+				target_w, target_h, Qt.KeepAspectRatio, Qt.SmoothTransformation,
+			)
+			scaled.setDevicePixelRatio(scale)
+			empty_image.setPixmap(scaled)
 
-		es_sub = QLabel("Products created by the owner will appear here.")
-		es_sub.setFont(inter(12))
-		es_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+		self._empty_title = QLabel("No products available")
+		self._empty_title.setFont(playfair(16, QFont.Medium))
+		self._empty_title.setAlignment(Qt.AlignCenter)
+		self._empty_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
-		es_lay.addWidget(es_title)
-		es_lay.addWidget(es_sub)
+		self._empty_sub = QLabel("Nothing to show here yet. Add a product to get started.")
+		self._empty_sub.setFont(inter(12))
+		self._empty_sub.setAlignment(Qt.AlignCenter)
+		self._empty_sub.setWordWrap(False)
+		self._empty_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+
+		es_lay.addWidget(empty_image, 0, Qt.AlignCenter)
+		es_lay.addWidget(self._empty_title)
+		es_lay.addWidget(self._empty_sub)
 
 		self._list_stack = QStackedWidget()
 		self._list_stack.addWidget(self._grid_wrap)
@@ -616,6 +979,11 @@ class OwnerProductsView(QWidget):
 		scroll.setWidget(self._content)
 		root.addWidget(scroll)
 
+		# ── Overlay modals (children of the view, not the scroll area) ────────
+		self._product_modal = ProductFormModal(self)
+		self._delete_overlay = None  # created on demand per product
+
+	# ── Topbar ────────────────────────────────────────────────────────────────
 	def _build_topbar(self):
 		bar = QWidget()
 		bar.setFixedHeight(84)
@@ -666,15 +1034,20 @@ class OwnerProductsView(QWidget):
 		self._clock_lbl.setText(QTime.currentTime().toString("hh:mm:ss"))
 		self._date_lbl.setText(QDate.currentDate().toString("dddd, MMMM d, yyyy"))
 
+	# ── Resize: keep overlays covering the full view ──────────────────────────
+	def resizeEvent(self, event):
+		super().resizeEvent(event)
+		self._render_grid()
+		# Overlays are children; they resize themselves via their own resizeEvent.
+
+	# ── Data ─────────────────────────────────────────────────────────────────
 	def load_products(self, products):
-		self._all_products = [dict(product) for product in products]
+		self._all_products = [dict(p) for p in products]
 		self._apply_filter(self._search.text() if hasattr(self, "_search") else "")
 
 	def _on_search(self, text):
-		if self._controller:
+		if self._controller and hasattr(self._controller, "search_products"):
 			self._controller.search_products((text or "").strip())
-		else:
-			self._apply_filter(text)
 
 	def _apply_filter(self, text):
 		query = (text or "").strip().lower()
@@ -682,30 +1055,36 @@ class OwnerProductsView(QWidget):
 			self._filtered_products = list(self._all_products)
 		else:
 			self._filtered_products = [
-				product for product in self._all_products if query in str(product.get("name", "")).lower()
+				p for p in self._all_products if query in str(p.get("name", "")).lower()
 			]
-
 		self._render_grid()
 		self._count_lbl.setText(f"{len(self._filtered_products)} products")
-		self._list_stack.setCurrentWidget(self._grid_wrap if self._filtered_products else self._empty_state)
+		self._refresh_empty_state()
+		self._list_stack.setCurrentWidget(
+			self._grid_wrap if self._filtered_products else self._empty_state
+		)
 
 	def _render_grid(self):
 		self._clear_layout(self._grid)
-
 		if not self._filtered_products:
 			return
-
 		columns = 4
 		for index, product in enumerate(self._filtered_products):
 			row = index // columns
 			col = index % columns
-			self._grid.addWidget(OwnerProductCard(product, self._edit_product, self._delete_product), row, col)
-
+			self._grid.addWidget(
+				OwnerProductCard(product, self._edit_product, self._delete_product), row, col
+			)
 		self._grid.setColumnStretch(columns, 1)
 
-	def resizeEvent(self, event):
-		super().resizeEvent(event)
-		self._render_grid()
+	def _refresh_empty_state(self):
+		keyword = self._search.text().strip()
+		if keyword:
+			self._empty_title.setText("No matching products")
+			self._empty_sub.setText(f'No product matched "{keyword}". Try a different product name.')
+			return
+		self._empty_title.setText("No products available")
+		self._empty_sub.setText("Nothing to show here yet. Add a product to get started.")
 
 	def _clear_layout(self, layout):
 		while layout.count():
@@ -720,6 +1099,28 @@ class OwnerProductsView(QWidget):
 	def show_error(self, title, message):
 		QMessageBox.warning(self, title, str(message))
 
+	def reset_view_state(self):
+		self._product_modal.reset_state()
+
+		if self._delete_overlay is not None:
+			self._delete_overlay.hide()
+			self._delete_overlay.deleteLater()
+			self._delete_overlay = None
+
+		if self._search.text():
+			self._search.blockSignals(True)
+			self._search.clear()
+			self._search.blockSignals(False)
+
+		if self._controller and hasattr(self._controller, "refresh_products"):
+			self._controller.refresh_products()
+		else:
+			self._apply_filter("")
+
+	def hideEvent(self, event):
+		self.reset_view_state()
+		super().hideEvent(event)
+
 	def bind_controller(self, controller, request_initial=False):
 		self._controller = controller
 		if hasattr(controller, "attach_view"):
@@ -728,141 +1129,42 @@ class OwnerProductsView(QWidget):
 			controller.refresh_products()
 		return controller
 
+	# ── CRUD actions (now use overlay modals) ─────────────────────────────────
 	def _add_product(self):
-		dialog = ProductEditorDialog(self)
-		if dialog.exec() == QDialog.Accepted:
-			new_product = dialog.product_data()
-			if self._controller:
-				self._controller.add_product(new_product)
-			else:
-				return new_product
+		cb = self._controller.add_product if self._controller and hasattr(self._controller, "add_product") else None
+		self._product_modal.open_add(cb)
 
 	def _edit_product(self, product):
-		current = next((item for item in self._all_products if item.get("id") == product.get("id")), None)
+		current = next((p for p in self._all_products if p.get("id") == product.get("id")), None)
 		if current is None:
 			return
-
-		dialog = ProductEditorDialog(self, current)
-		if dialog.exec() == QDialog.Accepted:
-			updated = dialog.product_data()
-			if self._controller:
-				self._controller.update_product(updated)
-			else:
-				return updated
+		cb = self._controller.update_product if self._controller and hasattr(self._controller, "update_product") else None
+		self._product_modal.open_edit(current, cb)
 
 	def _delete_product(self, product):
-		# Custom, draggable, frameless confirmation dialog with explicit sizing and hovers.
-		class _DeleteDialog(QDialog):
-			def __init__(self, parent=None):
-				super().__init__(parent)
-				self._drag_pos = None
-				self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-				self.setFixedSize(360, 160)  # sized just to fit the content
-				self.setStyleSheet(
-					f"""
-					QDialog {{
-						background: {WHITE};
-						border: 1px solid {GRAY_2};
-						border-radius: 12px;
-					}}
-					QLabel#Title {{
-						color: {TEAL_DARK};
-						font: 13pt "{INTER_FAMILY}";
-						background: transparent;
-					}}
-					QLabel#Body {{
-						color: {GRAY_5};
-						font: 11pt "{INTER_FAMILY}";
-						background: transparent;
-					}}
-					QPushButton {{
-						min-width: 120px;
-						padding: 9px 16px;
-						border-radius: 7px;
-						font: 10.5pt "{INTER_FAMILY}";
-						border: none;
-					}}
-					QPushButton#CancelBtn {{
-						color: {TEAL_DARK};
-						background: {TEAL_PALE};
-					}}
-					QPushButton#CancelBtn:hover {{
-						background: {TEAL_LIGHT};
-						color: {WHITE};
-					}}
-					QPushButton#CancelBtn:pressed {{
-						background: {TEAL_DARK};
-						color: {WHITE};
-					}}
-					QPushButton#DeleteBtn {{
-						color: #8a1a1a;
-						background: #fdeaea;
-					}}
-					QPushButton#DeleteBtn:hover {{
-						background: #f6cfcf;
-						color: #8a1a1a;
-					}}
-					QPushButton#DeleteBtn:pressed {{
-						background: #e3a5a5;
-						color: #ffffff;
-					}}
-					"""
-				)
+		if self._delete_overlay is not None:
+			self._delete_overlay.deleteLater()
+			self._delete_overlay = None
 
-				root = QVBoxLayout(self)
-				root.setContentsMargins(20, 18, 20, 16)
-				root.setSpacing(14)
+		overlay = _DeleteDialog(product, self)
+		self._delete_overlay = overlay
 
-				self.title_lbl = QLabel(f"⚠️  Delete '{product.get('name', 'this product')}'?")
-				self.title_lbl.setObjectName("Title")
+		def _confirm_delete(selected_product):
+			if self._controller and hasattr(self._controller, "delete_product"):
+				self._controller.delete_product(selected_product)
 
-				self.body_lbl = QLabel("This action cannot be undone. Related delivery data will remain.")
-				self.body_lbl.setWordWrap(True)
-				self.body_lbl.setObjectName("Body")
+		def _cleanup():
+			if self._delete_overlay is overlay:
+				self._delete_overlay = None
+			overlay.deleteLater()
 
-				root.addWidget(self.title_lbl)
-				root.addWidget(self.body_lbl)
-				root.addStretch()
-
-				btn_row = QHBoxLayout()
-				btn_row.setContentsMargins(0, 0, 0, 0)
-				btn_row.setSpacing(10)
-
-				cancel_btn = QPushButton("Cancel")
-				cancel_btn.setObjectName("CancelBtn")
-				cancel_btn.clicked.connect(self.reject)
-
-				delete_btn = QPushButton("Delete")
-				delete_btn.setObjectName("DeleteBtn")
-				delete_btn.clicked.connect(self.accept)
-
-				btn_row.addWidget(cancel_btn, 1, Qt.AlignLeft)
-				btn_row.addStretch()
-				btn_row.addWidget(delete_btn, 1, Qt.AlignRight)
-
-				root.addLayout(btn_row)
-
-			def mousePressEvent(self, event):
-				if event.button() == Qt.LeftButton:
-					self._drag_pos = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-				super().mousePressEvent(event)
-
-			def mouseMoveEvent(self, event):
-				if self._drag_pos and event.buttons() & Qt.LeftButton:
-					self.move(event.globalPosition().toPoint() - self._drag_pos)
-				super().mouseMoveEvent(event)
-
-		box = _DeleteDialog(self)
-		if box.exec() == QDialog.Accepted:
-			if self._controller:
-				self._controller.delete_product(product)
-			else:
-				# fallback local removal
-				self._all_products = [p for p in self._all_products if p.get("id") != product.get("id")]
-				self._apply_filter(self._search.text())
+		overlay.set_callbacks(on_confirm=_confirm_delete, on_close=_cleanup)
+		overlay.show_centered()
 
 
 def main():
+	from controllers.owner_product_controller import OwnerProductController
+
 	app = QApplication(sys.argv)
 	load_fonts()
 	app.setFont(inter(11))

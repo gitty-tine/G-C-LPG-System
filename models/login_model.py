@@ -11,7 +11,7 @@ class LoginModel:
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
                 "SELECT id, full_name, username, password, role "
-                "FROM users WHERE username = %s LIMIT 1",
+                "FROM users WHERE BINARY username = %s LIMIT 1",
                 (username,),
             )
             return cursor.fetchone()
