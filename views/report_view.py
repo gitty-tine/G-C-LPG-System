@@ -1709,6 +1709,13 @@ class ReportView(QFrame):
         if self._controller:
             self.reload_active_report()
 
+    def hideEvent(self, event):
+        self.reset_view_state(reload=False)
+        super().hideEvent(event)
+
+    def reset_view_state(self, reload=True):
+        self._switch_tab("daily", reload=reload)
+
     def _create_tab_button(self, text, active=False):
         """Create a tab button"""
         btn = QPushButton(text)
@@ -1739,7 +1746,7 @@ class ReportView(QFrame):
 
         return btn
 
-    def _switch_tab(self, tab_name):
+    def _switch_tab(self, tab_name, reload=True):
         """Switch between tabs"""
         tab_index = {"daily": 0, "weekly": 1, "monthly": 2}.get(tab_name, 0)
         self._content_stack.setCurrentIndex(tab_index)
@@ -1762,7 +1769,8 @@ class ReportView(QFrame):
         self.from_date.blockSignals(False)
         self.to_date.blockSignals(False)
 
-        self._apply_filter()
+        if reload:
+            self._apply_filter()
 
         # Update tab button styles
         for btn_name, btn in self._tab_buttons.items():

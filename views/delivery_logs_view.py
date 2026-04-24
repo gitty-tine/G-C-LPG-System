@@ -832,12 +832,19 @@ class DeliveryLogsView(QWidget):
 		if self._controller:
 			self.reload_data()
 
+	def hideEvent(self, event):
+		self._reset_view_state(reload=False)
+		super().hideEvent(event)
+
 	def reload_data(self):
 		if not self._controller:
 			return
 		self._controller.load()
 
 	def reset_view_state(self):
+		self._reset_view_state(reload=True)
+
+	def _reset_view_state(self, reload=True):
 		today = QDate.currentDate()
 		first_of_month = QDate(today.year(), today.month(), 1)
 
@@ -856,7 +863,8 @@ class DeliveryLogsView(QWidget):
 		self._date_from.blockSignals(False)
 		self._date_to.blockSignals(False)
 
-		self.reload_data()
+		if reload:
+			self.reload_data()
 
 	def show_error(self, title, message):
 		QMessageBox.critical(self, title, str(message))
