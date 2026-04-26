@@ -526,15 +526,13 @@ class AuditLogsView(QWidget):
 		self._filter_action_type = QComboBox()
 		self._filter_action_type.setFont(inter(11))
 		self._filter_action_type.setFixedHeight(34)
-		self._filter_action_type.setMinimumWidth(180)
-		self._filter_action_type.setMaximumWidth(240)
+		self._filter_action_type.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._filter_action_type.currentIndexChanged.connect(self._apply_filters)
 
 		self._filter_section = QComboBox()
 		self._filter_section.setFont(inter(11))
 		self._filter_section.setFixedHeight(34)
-		self._filter_section.setMinimumWidth(180)
-		self._filter_section.setMaximumWidth(280)
+		self._filter_section.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._filter_section.currentIndexChanged.connect(self._apply_filters)
 
 		self._date_from = QDateEdit()
@@ -545,8 +543,7 @@ class AuditLogsView(QWidget):
 		self._date_from.setDate(first_of_month)
 		self._date_from.setFont(inter(11))
 		self._date_from.setFixedHeight(34)
-		self._date_from.setMinimumWidth(170)
-		self._date_from.setMaximumWidth(170)
+		self._date_from.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._date_from.dateChanged.connect(self._on_date_from_changed)
 
 		self._date_to = QDateEdit()
@@ -555,8 +552,7 @@ class AuditLogsView(QWidget):
 		self._date_to.setDate(today)
 		self._date_to.setFont(inter(11))
 		self._date_to.setFixedHeight(34)
-		self._date_to.setMinimumWidth(170)
-		self._date_to.setMaximumWidth(170)
+		self._date_to.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._date_to.dateChanged.connect(self._on_date_to_changed)
 
 		from_lbl = QLabel("From")
@@ -567,10 +563,10 @@ class AuditLogsView(QWidget):
 		to_lbl.setFont(inter(10, QFont.Medium))
 		to_lbl.setStyleSheet(f"color:{GRAY_4};")
 
-		self._filter_action_type.setStyleSheet(_combo_box_style(min_width=180))
-		self._filter_section.setStyleSheet(_combo_box_style(min_width=180))
-		self._configure_date_edit(self._date_from, min_width=170)
-		self._configure_date_edit(self._date_to, min_width=170)
+		self._filter_action_type.setStyleSheet(_combo_box_style())
+		self._filter_section.setStyleSheet(_combo_box_style())
+		self._configure_date_edit(self._date_from)
+		self._configure_date_edit(self._date_to)
 
 		filter_row.addWidget(self._filter_action_type)
 		filter_row.addWidget(self._filter_section)
@@ -578,7 +574,6 @@ class AuditLogsView(QWidget):
 		filter_row.addWidget(self._date_from)
 		filter_row.addWidget(to_lbl)
 		filter_row.addWidget(self._date_to)
-		filter_row.addStretch()
 		content_lay.addLayout(filter_row)
 
 		# Table (7 columns)

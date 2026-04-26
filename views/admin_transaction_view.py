@@ -508,8 +508,7 @@ class TransactionView(QWidget):
         self._status_filter.addItems(["All statuses", "Paid", "Unpaid"])
         self._status_filter.setFont(inter(11))
         self._status_filter.setFixedHeight(34)
-        self._status_filter.setMinimumWidth(160)
-        self._status_filter.setMaximumWidth(160)
+        self._status_filter.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._status_filter.currentIndexChanged.connect(self._apply_filter)
         self._status_filter.setStyleSheet(
             f"""
@@ -539,8 +538,7 @@ class TransactionView(QWidget):
         self._date_from.setDate(self._default_from_date())
         self._date_from.setFont(inter(11))
         self._date_from.setFixedHeight(34)
-        self._date_from.setMinimumWidth(170)
-        self._date_from.setMaximumWidth(170)
+        self._date_from.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._date_from.dateChanged.connect(self._on_date_from_changed)
 
         self._date_to = QDateEdit()
@@ -549,12 +547,11 @@ class TransactionView(QWidget):
         self._date_to.setDate(QDate.currentDate())
         self._date_to.setFont(inter(11))
         self._date_to.setFixedHeight(34)
-        self._date_to.setMinimumWidth(170)
-        self._date_to.setMaximumWidth(170)
+        self._date_to.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._date_to.dateChanged.connect(self._on_date_to_changed)
 
-        self._configure_date_edit(self._date_from, min_width=170)
-        self._configure_date_edit(self._date_to, min_width=170)
+        self._configure_date_edit(self._date_from)
+        self._configure_date_edit(self._date_to)
 
         from_lbl = QLabel("From")
         from_lbl.setFont(inter(10, QFont.Medium))
@@ -564,19 +561,36 @@ class TransactionView(QWidget):
         to_lbl.setFont(inter(10, QFont.Medium))
         to_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
-        filters_row = QHBoxLayout()
-        filters_row.setSpacing(10)
-        filters_row.addStretch()
-        filters_row.addWidget(self._status_filter)
-        filters_row.addWidget(from_lbl)
-        filters_row.addWidget(self._date_from)
-        filters_row.addWidget(to_lbl)
-        filters_row.addWidget(self._date_to)
-
         header_row.addLayout(left)
         header_row.addStretch()
         content_lay.addLayout(header_row)
-        content_lay.addLayout(filters_row)
+        content_lay.addSpacing(8)
+
+        filter_bar = QFrame()
+        filter_bar.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        filter_bar.setStyleSheet(
+            f"QFrame{{background:transparent;border:none;border-radius:8px;}}"
+        )
+        fb_lay = QHBoxLayout(filter_bar)
+        fb_lay.setContentsMargins(14, 10, 14, 10)
+        fb_lay.setSpacing(8)
+
+        filter_lbl = QLabel("Filter:")
+        filter_lbl.setFont(inter(10, QFont.DemiBold))
+        filter_lbl.setStyleSheet(
+            f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;"
+        )
+
+        fb_lay.addWidget(filter_lbl)
+        fb_lay.addWidget(self._status_filter)
+        fb_lay.addSpacing(4)
+        fb_lay.addWidget(from_lbl)
+        fb_lay.addWidget(self._date_from)
+        fb_lay.addWidget(to_lbl)
+        fb_lay.addWidget(self._date_to)
+
+        content_lay.addWidget(filter_bar)
+        content_lay.addSpacing(4)
 
         summary_row = QHBoxLayout()
         summary_row.setSpacing(12)

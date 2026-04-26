@@ -524,14 +524,13 @@ class DeliveryLogsView(QWidget):
 		self._filter_delivery_id.setPlaceholderText("Filter by Delivery ID")
 		self._filter_delivery_id.setFont(inter(11))
 		self._filter_delivery_id.setFixedHeight(34)
-		self._filter_delivery_id.setMinimumWidth(180)
+		self._filter_delivery_id.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._filter_delivery_id.textChanged.connect(self._apply_filters)
 
 		self._filter_status_type = QComboBox()
 		self._filter_status_type.setFont(inter(11))
 		self._filter_status_type.setFixedHeight(34)
-		self._filter_status_type.setMinimumWidth(220)
-		self._filter_status_type.setMaximumWidth(280)
+		self._filter_status_type.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._filter_status_type.currentIndexChanged.connect(self._apply_filters)
 
 		self._date_from = QDateEdit()
@@ -542,8 +541,7 @@ class DeliveryLogsView(QWidget):
 		self._date_from.setDate(first_of_month)
 		self._date_from.setFont(inter(11))
 		self._date_from.setFixedHeight(34)
-		self._date_from.setMinimumWidth(170)
-		self._date_from.setMaximumWidth(170)
+		self._date_from.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._date_from.dateChanged.connect(self._on_date_from_changed)
 
 		self._date_to = QDateEdit()
@@ -552,8 +550,7 @@ class DeliveryLogsView(QWidget):
 		self._date_to.setDate(today)
 		self._date_to.setFont(inter(11))
 		self._date_to.setFixedHeight(34)
-		self._date_to.setMinimumWidth(170)
-		self._date_to.setMaximumWidth(170)
+		self._date_to.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._date_to.dateChanged.connect(self._on_date_to_changed)
 
 		from_lbl = QLabel("From")
@@ -583,9 +580,9 @@ class DeliveryLogsView(QWidget):
 			}}
 			"""
 		)
-		self._filter_status_type.setStyleSheet(_combo_box_style(min_width=220))
-		self._configure_date_edit(self._date_from, min_width=170)
-		self._configure_date_edit(self._date_to, min_width=170)
+		self._filter_status_type.setStyleSheet(_combo_box_style())
+		self._configure_date_edit(self._date_from)
+		self._configure_date_edit(self._date_to)
 
 		filter_row.addWidget(self._filter_delivery_id)
 		filter_row.addWidget(self._filter_status_type)
@@ -593,7 +590,6 @@ class DeliveryLogsView(QWidget):
 		filter_row.addWidget(self._date_from)
 		filter_row.addWidget(to_lbl)
 		filter_row.addWidget(self._date_to)
-		filter_row.addStretch()
 		content_lay.addLayout(filter_row)
 
 		self._table = QTableWidget(0, 6)

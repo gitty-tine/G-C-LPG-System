@@ -163,29 +163,24 @@ class CustomerModel:
         try:
             conn   = get_connection()
             cursor = conn.cursor()
-
-            # Validate contact number length
-            cursor.execute("""
-                SELECT LENGTH(TRIM(%s)) AS len
-            """, (contact_number,))
-            row = cursor.fetchone()
-            if row and row[0] < 7:
-                raise ValueError("Contact number is too short.")
-
-            conn.start_transaction()
-
-            cursor.execute("""
-                INSERT INTO customers (full_name, address, contact_number, notes)
-                VALUES (TRIM(%s), TRIM(%s), TRIM(%s), NULLIF(TRIM(%s), ''))
-            """, (full_name, address, contact_number, notes or ''))
-
-            new_id = cursor.lastrowid
+            cursor.callproc(
+                "sp_add_customer",
+                [full_name, address, contact_number, notes or '']
+            )
+            new_id = None
+            for result in cursor.stored_results():
+                row = result.fetchone()
+                if row:
+                    new_id = row[0]
             conn.commit()
             return new_id
-
-        except Exception:
+        except Exception as e:
             if conn:
                 conn.rollback()
+            msg = str(e)
+            if "45000" in msg or "1644" in msg:
+                clean = msg.split(":")[-1].strip()
+                raise ValueError(clean)
             raise
         finally:
             if cursor: cursor.close()
