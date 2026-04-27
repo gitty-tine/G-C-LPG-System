@@ -6,7 +6,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from PySide6.QtCore import Qt, QTimer, QDate, QTime, Signal, Slot
-from PySide6.QtGui import QFont, QFontDatabase, QPixmap
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QLabel,
     QFrame,
+    QGraphicsDropShadowEffect,
     QScrollArea,
     QSizePolicy,
     QLineEdit,
@@ -95,6 +96,10 @@ class ProductCard(QFrame):
             """
         )
 
+        self._shadow = QGraphicsDropShadowEffect(self)
+        self._set_hover_shadow(False)
+        self.setGraphicsEffect(self._shadow)
+
         lay = QVBoxLayout(self)
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(10)
@@ -170,6 +175,24 @@ class ProductCard(QFrame):
         lay.addWidget(name_lbl)
         lay.addLayout(price_row)
         lay.addStretch(1)
+
+    def enterEvent(self, event):
+        self._set_hover_shadow(True)
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self._set_hover_shadow(False)
+        super().leaveEvent(event)
+
+    def _set_hover_shadow(self, hovered):
+        if hovered:
+            self._shadow.setBlurRadius(28)
+            self._shadow.setOffset(0, 10)
+            self._shadow.setColor(QColor(20, 57, 52, 52))
+        else:
+            self._shadow.setBlurRadius(18)
+            self._shadow.setOffset(0, 4)
+            self._shadow.setColor(QColor(20, 57, 52, 28))
 
     def _price_box(self, label, value):
         box = QFrame()
@@ -247,9 +270,6 @@ class ProductView(QWidget):
         c_lay.setContentsMargins(28, 24, 28, 28)
         c_lay.setSpacing(0)
 
-        title_row = QHBoxLayout()
-        title_row.setSpacing(0)
-
         left = QVBoxLayout()
         left.setSpacing(0)
 
@@ -272,9 +292,10 @@ class ProductView(QWidget):
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search products...")
         self._search.setFont(inter(12))
-        self._search.setFixedHeight(36)
-        self._search.setMinimumWidth(360)
-        self._search.setMaximumWidth(460)
+        self._search.setFixedHeight(38)
+        self._search.setMinimumWidth(920)
+        self._search.setMaximumWidth(1400)
+        self._search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._search.setStyleSheet(
             f"""
             QLineEdit{{
@@ -287,28 +308,21 @@ class ProductView(QWidget):
         )
         self._search.textChanged.connect(self._on_search)
 
-        rule = QFrame()
-        rule.setFrameShape(QFrame.HLine)
-        rule.setStyleSheet(f"color:{GRAY_2};background:{GRAY_2};border:none;margin-bottom:6px;margin-left:24px;")
-
-        title_row.addLayout(left)
-        title_row.addWidget(rule, 1, Qt.AlignBottom)
-        title_row.addWidget(self._search, 0, Qt.AlignRight | Qt.AlignTop)
-
-        c_lay.addLayout(title_row)
-        c_lay.addSpacing(18)
+        c_lay.addLayout(left)
+        c_lay.addSpacing(16)
 
         list_head = QWidget()
         list_head.setStyleSheet("background:transparent;border:none;")
         lh_lay = QHBoxLayout(list_head)
-        lh_lay.setContentsMargins(0, 0, 0, 10)
+        lh_lay.setContentsMargins(0, 0, 0, 12)
+        lh_lay.setSpacing(18)
 
         self._count_lbl = QLabel("0 products")
         self._count_lbl.setFont(inter(11))
         self._count_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
-        lh_lay.addStretch()
-        lh_lay.addWidget(self._count_lbl)
+        lh_lay.addWidget(self._search, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        lh_lay.addWidget(self._count_lbl, 0, Qt.AlignRight | Qt.AlignVCenter)
         c_lay.addWidget(list_head)
 
         self._grid_wrap = QWidget()

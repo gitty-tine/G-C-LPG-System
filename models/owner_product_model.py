@@ -210,12 +210,13 @@ class OwnerProductModel:
 
     
     @staticmethod
-    def add(name, cylinder_size, refill_price, new_tank_price):
+    def add(name, cylinder_size, refill_price, new_tank_price, user_id):
         conn   = None
         cursor = None
         try:
             conn   = get_connection()
             cursor = conn.cursor()
+            cursor.execute("SET @current_user_id = %s", (user_id,))
             cursor.callproc(
                 "sp_add_product",
                 [name, cylinder_size, float(refill_price), float(new_tank_price)]
@@ -241,12 +242,13 @@ class OwnerProductModel:
 
     
     @staticmethod
-    def update(product_id, name, cylinder_size, refill_price, new_tank_price):
+    def update(product_id, name, cylinder_size, refill_price, new_tank_price, user_id):
         conn   = None
         cursor = None
         try:
             conn   = get_connection()
             cursor = conn.cursor()
+            cursor.execute("SET @current_user_id = %s", (user_id,))
             cursor.callproc(
                 "sp_update_product",
                 [product_id, name, cylinder_size, float(refill_price), float(new_tank_price)]
@@ -267,12 +269,13 @@ class OwnerProductModel:
 
     
     @staticmethod
-    def delete(product_id):
+    def delete(product_id, user_id):
         conn   = None
         cursor = None
         try:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
+            cursor.execute("SET @current_user_id = %s", (user_id,))
 
             cursor.execute("""
                 SELECT COUNT(*) AS linked_count
@@ -303,7 +306,6 @@ class OwnerProductModel:
             if cursor: cursor.close()
             if conn:   conn.close()
 
-    
     @staticmethod
     def get_count():
         conn   = None

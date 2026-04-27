@@ -486,6 +486,10 @@ class OwnerProductCard(QFrame):
 		"""
 		)
 
+		self._shadow = QGraphicsDropShadowEffect(self)
+		self._set_hover_shadow(False)
+		self.setGraphicsEffect(self._shadow)
+
 		lay = QVBoxLayout(self)
 		lay.setContentsMargins(14, 14, 14, 14)
 		lay.setSpacing(10)
@@ -604,6 +608,24 @@ class OwnerProductCard(QFrame):
 		lay.addLayout(price_row)
 		lay.addLayout(btn_row)
 		lay.addStretch(1)
+
+	def enterEvent(self, event):
+		self._set_hover_shadow(True)
+		super().enterEvent(event)
+
+	def leaveEvent(self, event):
+		self._set_hover_shadow(False)
+		super().leaveEvent(event)
+
+	def _set_hover_shadow(self, hovered):
+		if hovered:
+			self._shadow.setBlurRadius(28)
+			self._shadow.setOffset(0, 10)
+			self._shadow.setColor(QColor(20, 57, 52, 52))
+		else:
+			self._shadow.setBlurRadius(18)
+			self._shadow.setOffset(0, 4)
+			self._shadow.setColor(QColor(20, 57, 52, 28))
 
 	def _price_box(self, label, value):
 		box = QFrame()
@@ -843,9 +865,7 @@ class OwnerProductsView(QWidget):
 		c_lay.setContentsMargins(28, 24, 28, 28)
 		c_lay.setSpacing(0)
 
-		title_row = QHBoxLayout()
-		title_row.setSpacing(0)
-
+		# ── Title block ───────────────────────────────────────────────────────
 		left = QVBoxLayout()
 		left.setSpacing(0)
 
@@ -865,32 +885,19 @@ class OwnerProductsView(QWidget):
 		left.addWidget(title)
 		left.addWidget(page_sub)
 
-		self._add_btn = QPushButton("+ Add Product")
-		self._add_btn.setCursor(Qt.PointingHandCursor)
-		self._add_btn.setFont(inter(11, QFont.Medium))
-		self._add_btn.clicked.connect(self._add_product)
-		self._add_btn.setStyleSheet(
-			f"""
-			QPushButton {{
-				color: {WHITE};
-				background: {TEAL_DARK};
-				border: 1px solid {TEAL_DARK};
-				border-radius: 6px;
-				padding: 10px 25px;
-			}}
-			QPushButton:hover {{
-				background: {TEAL};
-				border-color: {TEAL};
-			}}
-			"""
-		)
+		c_lay.addLayout(left)
+		c_lay.addSpacing(16)
+
+		# ── Toolbar row: [Search (expands)] [Add button] ─
+		toolbar_row = QHBoxLayout()
+		toolbar_row.setContentsMargins(0, 0, 0, 0)
+		toolbar_row.setSpacing(12)
 
 		self._search = QLineEdit()
 		self._search.setPlaceholderText("Search products...")
 		self._search.setFont(inter(12))
 		self._search.setFixedHeight(36)
-		self._search.setMinimumWidth(280)
-		self._search.setMaximumWidth(460)
+		self._search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 		self._search.setStyleSheet(
 			f"""
 			QLineEdit{{
@@ -903,30 +910,47 @@ class OwnerProductsView(QWidget):
 		)
 		self._search.textChanged.connect(self._on_search)
 
-		rule = QFrame()
-		rule.setFrameShape(QFrame.HLine)
-		rule.setStyleSheet(f"color:{GRAY_2};background:{GRAY_2};border:none;margin-bottom:6px;margin-left:24px;")
+		self._add_btn = QPushButton("+ Add Product")
+		self._add_btn.setCursor(Qt.PointingHandCursor)
+		self._add_btn.setFont(inter(12, QFont.Medium))
+		self._add_btn.setFixedHeight(36)
+		self._add_btn.setFixedWidth(230)
+		self._add_btn.clicked.connect(self._add_product)
+		self._add_btn.setStyleSheet(
+			f"""
+			QPushButton {{
+				color: {WHITE};
+				background: {TEAL};
+				border: 1px solid {TEAL};
+				border-radius: 4px;
+				padding: 0 18px;
+			}}
+			QPushButton:hover {{
+				background: {TEAL_DARK};
+				border-color: {TEAL_DARK};
+			}}
+			"""
+		)
 
-		title_row.addLayout(left)
-		title_row.addWidget(rule, 1, Qt.AlignBottom)
-		title_row.addWidget(self._search, 0, Qt.AlignRight | Qt.AlignTop)
+		toolbar_row.addWidget(self._search, 1)
+		toolbar_row.addWidget(self._add_btn, 0, Qt.AlignTop)
 
-		controls_row = QHBoxLayout()
-		controls_row.setContentsMargins(0, 14, 0, 0)
-		controls_row.setSpacing(17)
-		controls_row.addWidget(self._add_btn, 10, Qt.AlignLeft)
-		controls_row.addStretch()
+		c_lay.addLayout(toolbar_row)
+		c_lay.addSpacing(14)
+
+		list_head = QWidget()
+		list_head.setStyleSheet("background:transparent;border:none;")
+		lh_lay = QHBoxLayout(list_head)
+		lh_lay.setContentsMargins(0, 0, 0, 12)
+		lh_lay.setSpacing(10)
 
 		self._count_lbl = QLabel("0 products")
 		self._count_lbl.setFont(inter(11))
 		self._count_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-		self._count_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-		self._count_lbl.setMinimumWidth(140)
-		controls_row.addWidget(self._count_lbl, 0, Qt.AlignRight)
 
-		c_lay.addLayout(title_row)
-		c_lay.addLayout(controls_row)
-		c_lay.addSpacing(18)
+		lh_lay.addStretch()
+		lh_lay.addWidget(self._count_lbl, 0, Qt.AlignRight)
+		c_lay.addWidget(list_head)
 
 		self._grid_wrap = QWidget()
 		self._grid_wrap.setStyleSheet("background:transparent;border:none;")
@@ -1048,17 +1072,29 @@ class OwnerProductsView(QWidget):
 	def _on_search(self, text):
 		if self._controller and hasattr(self._controller, "search_products"):
 			self._controller.search_products((text or "").strip())
+		else:
+			self._apply_filter(text)
 
 	def _apply_filter(self, text):
 		query = (text or "").strip().lower()
-		if not query:
-			self._filtered_products = list(self._all_products)
-		else:
-			self._filtered_products = [
-				p for p in self._all_products if query in str(p.get("name", "")).lower()
+		products = list(self._all_products)
+
+		if query:
+			products = [
+				p for p in products
+				if query in str(p.get("name", "")).lower()
+				or query in str(p.get("cylinder_size", "")).lower()
+				or query in str(p.get("display_name", "")).lower()
 			]
+
+		products.sort(key=lambda p: str(p.get("name", "")).lower())
+
+		self._filtered_products = products
+		if hasattr(self, "_count_lbl"):
+			count = len(self._filtered_products)
+			self._count_lbl.setText(f"{count} product{'s' if count != 1 else ''}")
+
 		self._render_grid()
-		self._count_lbl.setText(f"{len(self._filtered_products)} products")
 		self._refresh_empty_state()
 		self._list_stack.setCurrentWidget(
 			self._grid_wrap if self._filtered_products else self._empty_state
@@ -1073,7 +1109,13 @@ class OwnerProductsView(QWidget):
 			row = index // columns
 			col = index % columns
 			self._grid.addWidget(
-				OwnerProductCard(product, self._edit_product, self._delete_product), row, col
+				OwnerProductCard(
+					product,
+					self._edit_product,
+					self._delete_product,
+				),
+				row,
+				col,
 			)
 		self._grid.setColumnStretch(columns, 1)
 
@@ -1096,8 +1138,19 @@ class OwnerProductsView(QWidget):
 			elif child_layout is not None:
 				self._clear_layout(child_layout)
 
+	def _coerce_error_text(self, message):
+		if isinstance(message, dict):
+			for key in ("form", "name", "cylinder_size", "refill_price", "new_tank_price"):
+				if message.get(key):
+					return str(message[key])
+			for value in message.values():
+				if value:
+					return str(value)
+			return "Something went wrong."
+		return str(message)
+
 	def show_error(self, title, message):
-		QMessageBox.warning(self, title, str(message))
+		QMessageBox.warning(self, title, self._coerce_error_text(message))
 
 	def reset_view_state(self):
 		self._product_modal.reset_state()

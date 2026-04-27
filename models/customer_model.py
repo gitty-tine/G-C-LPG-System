@@ -159,12 +159,13 @@ class CustomerModel:
 
     
     @staticmethod
-    def add(full_name, address, contact_number, notes):
+    def add(full_name, address, contact_number, notes, user_id):
         conn   = None
         cursor = None
         try:
             conn   = get_connection()
             cursor = conn.cursor()
+            cursor.execute("SET @current_user_id = %s", (user_id,))
             cursor.callproc(
                 "sp_add_customer",
                 [full_name, address, contact_number, notes or '']
@@ -190,12 +191,13 @@ class CustomerModel:
 
     
     @staticmethod
-    def update(customer_id, full_name, address, contact_number, notes):
+    def update(customer_id, full_name, address, contact_number, notes, user_id):
         conn   = None
         cursor = None
         try:
             conn   = get_connection()
             cursor = conn.cursor()
+            cursor.execute("SET @current_user_id = %s", (user_id,))
 
             cursor.callproc(
                 "sp_update_customer",
@@ -218,12 +220,13 @@ class CustomerModel:
 
     
     @staticmethod
-    def delete(customer_id):
+    def delete(customer_id, user_id):
         conn   = None
         cursor = None
         try:
             conn   = get_connection()
             cursor = conn.cursor()
+            cursor.execute("SET @current_user_id = %s", (user_id,))
             cursor.callproc("sp_delete_customer", [customer_id])
             conn.commit()
             return True

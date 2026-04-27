@@ -141,7 +141,15 @@ def make_field(label_text, placeholder, required=True, multiline=False):
         """)
         g_lay.addWidget(inp)
 
-    return grp, inp
+    err = QLabel("")
+    err.setFont(inter(10))
+    err.setStyleSheet(f"color:{RED_BTN};background:transparent;border:none;")
+    err.setContentsMargins(2, 2, 0, 0)
+    err.setWordWrap(True)
+    err.hide()
+    g_lay.addWidget(err)
+
+    return grp, inp, err
 
 
 # ── Customer form modal overlay ───────────────────────────────────────────────
@@ -206,10 +214,23 @@ class CustomerFormModal(QWidget):
         b_lay.setContentsMargins(22, 20, 22, 20)
         b_lay.setSpacing(14)
 
-        f1, self.inp_name    = make_field("Full Name",       "e.g. Kristine Katigbak",           required=True)
-        f2, self.inp_address = make_field("Address",         "e.g. Brgy. Putol, Tuy, Batangas", required=True, multiline=True)
-        f3, self.inp_contact = make_field("Contact Number",  "e.g. 09171234567",            required=True)
-        f4, self.inp_notes   = make_field("Notes",           "Optional delivery instructions",  required=False, multiline=True)
+        f1, self.inp_name, self.err_name = make_field(
+            "Full Name", "e.g. Kristine Katigbak", required=True
+        )
+        f2, self.inp_address, self.err_address = make_field(
+            "Address", "e.g. Brgy. Putol, Tuy, Batangas", required=True, multiline=True
+        )
+        f3, self.inp_contact, self.err_contact = make_field(
+            "Contact Number", "e.g. 09171234567", required=True
+        )
+        f4, self.inp_notes, self.err_notes = make_field(
+            "Notes", "Optional delivery instructions", required=False, multiline=True
+        )
+
+        self.inp_name.textChanged.connect(lambda _: self._clear_field_error(self.err_name))
+        self.inp_address.textChanged.connect(lambda: self._clear_field_error(self.err_address))
+        self.inp_contact.textChanged.connect(lambda _: self._clear_field_error(self.err_contact))
+        self.inp_notes.textChanged.connect(lambda: self._clear_field_error(self.err_notes))
 
         for f in [f1, f2, f3, f4]:
             b_lay.addWidget(f)
@@ -217,6 +238,7 @@ class CustomerFormModal(QWidget):
         self._err_lbl = QLabel("")
         self._err_lbl.setFont(inter(11))
         self._err_lbl.setStyleSheet(f"color:{RED_BTN};background:transparent;border:none;")
+        self._err_lbl.setWordWrap(True)
         self._err_lbl.hide()
         b_lay.addWidget(self._err_lbl)
 
@@ -268,7 +290,7 @@ class CustomerFormModal(QWidget):
         self._modal_subtitle.setText("Fill in the details to add a new customer.")
         self._save_btn.setText("Save Customer")
         self._clear_fields()
-        self._err_lbl.hide()
+        self._clear_inline_errors()
         self._show_centered()
 
     def open_edit(self, customer_data, callback):
@@ -278,7 +300,7 @@ class CustomerFormModal(QWidget):
         self._modal_title.setText("Edit Customer Details")
         self._modal_subtitle.setText("Update the customer's details below.")
         self._save_btn.setText("Update Details")
-        self._err_lbl.hide()
+        self._clear_inline_errors()
         self.inp_name.setText(customer_data.get("full_name", ""))
         self.inp_address.setPlainText(customer_data.get("address", ""))
         self.inp_contact.setText(customer_data.get("contact_number", ""))
@@ -288,20 +310,24 @@ class CustomerFormModal(QWidget):
     def _show_centered(self):
         if self.parent():
             self.setGeometry(self.parent().rect())
-        self._card.adjustSize()
-        x = (self.width()  - self._card.width())  // 2
-        y = (self.height() - self._card.height()) // 2
-        self._card.move(x, y)
+        self._refresh_card_geometry()
         self.show()
         self.raise_()
+
+    def _refresh_card_geometry(self):
+        if not self._card:
+            return
+        self._card.layout().activate()
+        self._card.adjustSize()
+        x = max(0, (self.width() - self._card.width()) // 2)
+        y = max(0, (self.height() - self._card.height()) // 2)
+        self._card.move(x, y)
 
     def resizeEvent(self, event):
         if self.parent():
             self.setGeometry(self.parent().rect())
         if self._card:
-            x = (self.width()  - self._card.width())  // 2
-            y = (self.height() - self._card.height()) // 2
-            self._card.move(x, y)
+            self._refresh_card_geometry()
         super().resizeEvent(event)
 
     def mousePressEvent(self, event):
@@ -344,6 +370,27 @@ class CustomerFormModal(QWidget):
         self.inp_contact.clear()
         self.inp_notes.clear()
 
+    def _clear_inline_errors(self):
+        for err in [self.err_name, self.err_address, self.err_contact, self.err_notes]:
+            err.clear()
+            err.hide()
+        self._err_lbl.clear()
+        self._err_lbl.hide()
+        self._refresh_card_geometry()
+
+    def _clear_field_error(self, err_label):
+        changed = False
+        if not err_label.isHidden() or err_label.text():
+            err_label.clear()
+            err_label.hide()
+            changed = True
+        if not self._err_lbl.isHidden() or self._err_lbl.text():
+            self._err_lbl.clear()
+            self._err_lbl.hide()
+            changed = True
+        if changed:
+            self._refresh_card_geometry()
+
     def reset_state(self):
         self._mode = "add"
         self._callback = None
@@ -354,27 +401,36 @@ class CustomerFormModal(QWidget):
         self._modal_subtitle.setText("Fill in the details to add a new customer.")
         self._save_btn.setText("Save Customer")
         self._clear_fields()
-        self._err_lbl.clear()
-        self._err_lbl.hide()
+        self._clear_inline_errors()
         self.hide()
 
     def _on_save(self):
+        self._clear_inline_errors()
+
         name = re.sub(r'[^a-zA-Z0-9\s]', '', self.inp_name.text()).strip()
         address = self.inp_address.toPlainText().strip()
         contact = self.inp_contact.text().strip()
         notes   = self.inp_notes.toPlainText().strip()
 
+        has_error = False
+
         if not name:
-            self._show_error("Full name is required.")
-            return
+            self.err_name.setText("Full name is required.")
+            self.err_name.show()
+            has_error = True
         if not address:
-            self._show_error("Address is required.")
-            return
+            self.err_address.setText("Address is required.")
+            self.err_address.show()
+            has_error = True
         if not contact:
-            self._show_error("Contact number is required.")
+            self.err_contact.setText("Contact number is required.")
+            self.err_contact.show()
+            has_error = True
+
+        if has_error:
+            self._refresh_card_geometry()
             return
 
-        self._err_lbl.hide()
         data = {
             "id":             self._edit_id,
             "full_name":      name,
@@ -383,12 +439,32 @@ class CustomerFormModal(QWidget):
             "notes":          notes,
         }
         if self._callback:
-            self._callback(data, self._mode)
+            if self._callback(data, self._mode) is False:
+                return
         self.hide()
+
+    def show_server_error(self, message):
+        self._clear_inline_errors()
+        message = str(message or "").strip()
+        msg_lower = message.lower()
+        if "name" in msg_lower:
+            self.err_name.setText(message)
+            self.err_name.show()
+        elif "address" in msg_lower:
+            self.err_address.setText(message)
+            self.err_address.show()
+        elif "contact" in msg_lower:
+            self.err_contact.setText(message)
+            self.err_contact.show()
+        else:
+            self._err_lbl.setText(message)
+            self._err_lbl.show()
+        self._refresh_card_geometry()
 
     def _show_error(self, msg):
         self._err_lbl.setText(msg)
         self._err_lbl.show()
+        self._refresh_card_geometry()
 
 
 # ── Delete confirmation modal ─────────────────────────────────────────────────
@@ -919,21 +995,21 @@ class CustomerView(QWidget):
             scaled.setDevicePixelRatio(scale)
             es_image.setPixmap(scaled)
 
-        es_title = QLabel("No customers yet")
-        es_title.setFont(playfair(16, QFont.Medium))
-        es_title.setAlignment(Qt.AlignCenter)
-        es_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        self._empty_title = QLabel("No customers yet")
+        self._empty_title.setFont(playfair(16, QFont.Medium))
+        self._empty_title.setAlignment(Qt.AlignCenter)
+        self._empty_title.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
-        es_sub = QLabel("Click \"+ Add Customer\" to add your first customer.")
-        es_sub.setFont(inter(12))
-        es_sub.setAlignment(Qt.AlignCenter)
-        es_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+        self._empty_sub = QLabel('Click "+ Add Customer" to add your first customer.')
+        self._empty_sub.setFont(inter(12))
+        self._empty_sub.setAlignment(Qt.AlignCenter)
+        self._empty_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
 
         es_lay.addWidget(es_image, 0, Qt.AlignCenter)
         es_lay.addSpacing(8)
-        es_lay.addWidget(es_title)
+        es_lay.addWidget(self._empty_title)
         es_lay.addSpacing(4)
-        es_lay.addWidget(es_sub)
+        es_lay.addWidget(self._empty_sub)
 
         self._table_stack = QStackedWidget()
         self._table_stack.addWidget(self._table)
@@ -1038,8 +1114,11 @@ class CustomerView(QWidget):
             )
             if ok:
                 self._refresh_visible_customers()
+                self._refresh_counts()
+                return True
             else:
-                self._show_error_message("Add Customer Failed", res)
+                self._form_modal.show_server_error(res)
+                return False
         else:
             ok, res = CustomerController.update_customer(
                 data.get("id"),
@@ -1050,9 +1129,11 @@ class CustomerView(QWidget):
             )
             if ok:
                 self._refresh_visible_customers()
+                self._refresh_counts()
+                return True
             else:
-                self._show_error_message("Update Customer Failed", res)
-        self._refresh_counts()
+                self._form_modal.show_server_error(res)
+                return False
 
     def _on_delete_confirmed(self, customer_id):
         ok, res = CustomerController.delete_customer(customer_id)
@@ -1122,6 +1203,15 @@ class CustomerView(QWidget):
 
     def _refresh_empty_state(self):
         has_rows = self._proxy.rowCount() > 0
+        keyword = self._search.text().strip()
+        if keyword:
+            self._empty_title.setText("No matching customers")
+            self._empty_sub.setText(
+                f'No customer matched "{keyword}". Try a different name or contact number.'
+            )
+        else:
+            self._empty_title.setText("No customers yet")
+            self._empty_sub.setText('Click "+ Add Customer" to add your first customer.')
         self._table_stack.setCurrentWidget(self._table if has_rows else self._empty_state)
 
     # --- Data loading helpers ---
