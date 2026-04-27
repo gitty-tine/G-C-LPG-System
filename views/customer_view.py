@@ -1,5 +1,6 @@
 import sys
 import os
+import re
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
@@ -358,7 +359,7 @@ class CustomerFormModal(QWidget):
         self.hide()
 
     def _on_save(self):
-        name    = self.inp_name.text().strip()
+        name = re.sub(r'[^a-zA-Z0-9\s]', '', self.inp_name.text()).strip()
         address = self.inp_address.toPlainText().strip()
         contact = self.inp_contact.text().strip()
         notes   = self.inp_notes.toPlainText().strip()
@@ -622,29 +623,18 @@ class StatusModal(QWidget):
         layout.addWidget(body)
 
         footer = QWidget()
-        footer.setStyleSheet(f"background:transparent;border:none;border-top:1px solid {GRAY_2};")
+        footer.setStyleSheet("background:transparent;border:none;")
         footer_lay = QHBoxLayout(footer)
         footer_lay.setContentsMargins(24, 14, 24, 16)
         footer_lay.setSpacing(10)
         footer_lay.addStretch()
 
-        self._ok_btn = QPushButton("Understood")
-        self._ok_btn.setCursor(Qt.PointingHandCursor)
-        self._ok_btn.setFont(inter(12, QFont.Medium))
-        self._ok_btn.setFixedHeight(36)
-        self._ok_btn.setStyleSheet(f"""
-            QPushButton{{color:{WHITE};background:{GRAY_5};border:1px solid {GRAY_5};border-radius:5px;padding:0 18px;}}
-            QPushButton:hover{{background:{TEAL_DARK};border-color:{TEAL_DARK};}}
-        """)
-        self._ok_btn.clicked.connect(self.hide)
-        footer_lay.addWidget(self._ok_btn)
         layout.addWidget(footer)
 
-    def open(self, title, message, eyebrow="Action blocked", button_text="Understood"):
+    def open(self, title, message, eyebrow="Action blocked", button_text=None):
         self._title.setText(title)
         self._message.setText(message)
         self._eyebrow.setText(eyebrow)
-        self._ok_btn.setText(button_text)
 
         if self.parent():
             self.setGeometry(self.parent().rect())
@@ -654,6 +644,7 @@ class StatusModal(QWidget):
         self._card.move(x, y)
         self.show()
         self.raise_()
+        QTimer.singleShot(4000, self.hide)
 
     def reset_state(self):
         self._drag_active = False
@@ -661,7 +652,6 @@ class StatusModal(QWidget):
         self._eyebrow.setText("Action blocked")
         self._title.setText("Unable to delete customer")
         self._message.clear()
-        self._ok_btn.setText("Understood")
         self.hide()
 
     def resizeEvent(self, event):
@@ -731,6 +721,7 @@ class CustomerView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(owner_scrollbar_qss())
 
         content = QWidget()
@@ -767,8 +758,7 @@ class CustomerView(QWidget):
         self._search.setPlaceholderText("Search customer by name or contact number...")
         self._search.setFont(inter(12))
         self._search.setFixedHeight(36)
-        self._search.setMinimumWidth(420)
-        self._search.setMaximumWidth(520)
+        self._search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._search.setStyleSheet(f"""
             QLineEdit{{
                 color:{GRAY_5};background:{WHITE};
@@ -796,8 +786,7 @@ class CustomerView(QWidget):
 
         action_row = QHBoxLayout()
         action_row.setSpacing(12)
-        action_row.addWidget(self._search, 0, Qt.AlignLeft | Qt.AlignVCenter)
-        action_row.addStretch()
+        action_row.addWidget(self._search, 1, Qt.AlignVCenter)
         action_row.addWidget(self._add_btn, 0, Qt.AlignRight | Qt.AlignVCenter)
         c_lay.addLayout(action_row)
         c_lay.addSpacing(10)
@@ -1048,7 +1037,7 @@ class CustomerView(QWidget):
                 data.get("notes", ""),
             )
             if ok:
-                self._append_row(res)
+                self._refresh_visible_customers()
             else:
                 self._show_error_message("Add Customer Failed", res)
         else:
@@ -1060,7 +1049,7 @@ class CustomerView(QWidget):
                 data.get("notes", ""),
             )
             if ok:
-                self._update_row(res)
+                self._refresh_visible_customers()
             else:
                 self._show_error_message("Update Customer Failed", res)
         self._refresh_counts()
@@ -1068,11 +1057,7 @@ class CustomerView(QWidget):
     def _on_delete_confirmed(self, customer_id):
         ok, res = CustomerController.delete_customer(customer_id)
         if ok:
-            for row in range(self._model.rowCount()):
-                if self._model.item(row, 0).data(Qt.UserRole) == customer_id:
-                    self._model.removeRow(row)
-                    break
-            self._refresh_counts()
+            self._refresh_visible_customers()
         else:
             self._show_error_message("Delete Customer Failed", res)
 
@@ -1151,6 +1136,18 @@ class CustomerView(QWidget):
             self._search.blockSignals(False)
 
         self._load_from_db()
+
+    def _refresh_visible_customers(self):
+        keyword = self._search.text().strip()
+        if keyword == "":
+            self._load_from_db()
+            return
+
+        ok, res = CustomerController.search_customers(keyword)
+        if ok:
+            self.load_customers(res)
+        else:
+            self._show_error_message("Search Failed", res)
 
     def _load_from_db(self):
         ok, res = CustomerController.list_customers()

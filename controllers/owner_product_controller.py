@@ -117,16 +117,18 @@ class OwnerProductController(QObject):
             errors["new_tank_price"] = "Prices must be greater than zero."
 
         if not errors:
+            clean_name = re.sub(r"[^a-zA-Z0-9\s]", "", normalized["name"]).strip()
+            normalized["name"] = clean_name
             if product_id:
                 exists = OwnerProductModel.exists(
-                    normalized["name"],
+                    clean_name,
                     normalized["cylinder_size"],
                     exclude_id=product_id,
                 )
                 if exists:
-                    errors["name"] = "Product already exists."
-            elif OwnerProductModel.exists(normalized["name"], normalized["cylinder_size"]):
-                errors["name"] = "Product already exists."
+                    errors["name"] = "A product with this name already exists."
+            elif OwnerProductModel.exists(clean_name, normalized["cylinder_size"]):
+                errors["name"] = "A product with this name already exists."
 
         return normalized, errors
 

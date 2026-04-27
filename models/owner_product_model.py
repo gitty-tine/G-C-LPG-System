@@ -189,7 +189,8 @@ class OwnerProductModel:
             if exclude_id:
                 cursor.execute("""
                     SELECT id FROM lpg_products
-                    WHERE LOWER(TRIM(name))          = LOWER(TRIM(%s))
+                    WHERE REGEXP_REPLACE(LOWER(TRIM(name)), '[^a-z0-9 ]', '')
+                        = REGEXP_REPLACE(LOWER(TRIM(%s)), '[^a-z0-9 ]', '')
                       AND LOWER(TRIM(cylinder_size)) = LOWER(TRIM(%s))
                       AND id != %s
                     LIMIT 1
@@ -197,7 +198,8 @@ class OwnerProductModel:
             else:
                 cursor.execute("""
                     SELECT id FROM lpg_products
-                    WHERE LOWER(TRIM(name))          = LOWER(TRIM(%s))
+                    WHERE REGEXP_REPLACE(LOWER(TRIM(name)), '[^a-z0-9 ]', '')
+                        = REGEXP_REPLACE(LOWER(TRIM(%s)), '[^a-z0-9 ]', '')
                       AND LOWER(TRIM(cylinder_size)) = LOWER(TRIM(%s))
                     LIMIT 1
                 """, (name, cylinder_size))
@@ -226,9 +228,12 @@ class OwnerProductModel:
             conn.commit()
             return new_id
 
-        except Exception:
+        except Exception as e:
             if conn:
                 conn.rollback()
+            msg = str(e)
+            if "45000" in msg or "1644" in msg:
+                raise ValueError(msg.split(":")[-1].strip())
             raise
         finally:
             if cursor: cursor.close()
@@ -242,33 +247,19 @@ class OwnerProductModel:
         try:
             conn   = get_connection()
             cursor = conn.cursor()
-
-            conn.start_transaction()
-            cursor.execute("SAVEPOINT before_product_update")
-
-            cursor.execute("""
-                UPDATE lpg_products
-                SET
-                    name           = TRIM(%s),
-                    cylinder_size  = TRIM(%s),
-                    refill_price   = ROUND(%s, 2),
-                    new_tank_price = ROUND(%s, 2)
-                WHERE id = %s
-            """, (name, cylinder_size,
-                  float(refill_price), float(new_tank_price),
-                  product_id))
-
-            if cursor.rowcount == 0:
-                cursor.execute("ROLLBACK TO SAVEPOINT before_product_update")
-                conn.rollback()
-                raise ValueError(f"Product with id {product_id} not found.")
-
+            cursor.callproc(
+                "sp_update_product",
+                [product_id, name, cylinder_size, float(refill_price), float(new_tank_price)]
+            )
             conn.commit()
             return True
 
-        except Exception:
+        except Exception as e:
             if conn:
                 conn.rollback()
+            msg = str(e)
+            if "45000" in msg or "1644" in msg:
+                raise ValueError(msg.split(":")[-1].strip())
             raise
         finally:
             if cursor: cursor.close()

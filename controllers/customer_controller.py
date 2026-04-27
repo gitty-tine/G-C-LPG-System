@@ -63,9 +63,6 @@ class CustomerController:
     @staticmethod
     def add_customer(full_name, address, contact_number, notes=""):
         try:
-            if CustomerModel.exists(full_name, contact_number):
-                return False, "Customer already exists with the same name and contact number."
-
             new_id = CustomerModel.add(full_name, address, contact_number, notes)
             created = CustomerModel.get_by_id(new_id)
             AuditActorModel.sync_actor(
@@ -83,9 +80,6 @@ class CustomerController:
     @staticmethod
     def update_customer(customer_id, full_name, address, contact_number, notes=""):
         try:
-            if CustomerModel.exists(full_name, contact_number, exclude_id=customer_id):
-                return False, "Another customer already uses this name and contact number."
-
             before = CustomerModel.get_by_id(customer_id)
             CustomerModel.update(customer_id, full_name, address, contact_number, notes)
             updated = CustomerModel.get_by_id(customer_id)
