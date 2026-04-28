@@ -1,3 +1,6 @@
+import random
+import string
+
 from database.connection import get_connection
 
 
@@ -10,9 +13,28 @@ class LoginModel:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, full_name, username, password, role "
+                "SELECT id, full_name, username, password, role, email "
                 "FROM users WHERE BINARY username = %s LIMIT 1",
                 (username,),
+            )
+            return cursor.fetchone()
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def get_user_by_email(email):
+        conn = None
+        cursor = None
+        try:
+            conn = get_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                "SELECT id, full_name, username, role, email "
+                "FROM users WHERE email = %s LIMIT 1",
+                (email.strip(),),
             )
             return cursor.fetchone()
         finally:
@@ -40,6 +62,87 @@ class LoginModel:
             )
         except Exception:
             return False
+
+    @staticmethod
+    def generate_reset_code():
+        return "".join(random.choices(string.digits, k=6))
+
+    @staticmethod
+    def save_reset_code(user_id, code):
+        conn = None
+        cursor = None
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE users
+                SET reset_code = %s,
+                    reset_code_expires_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE)
+                WHERE id = %s
+                """,
+                (code, user_id),
+            )
+            conn.commit()
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def verify_reset_code(email, code):
+        conn = None
+        cursor = None
+        try:
+            conn = get_connection()
+            cursor = conn.cursor(dictionary=True)
+            cursor.execute(
+                """
+                SELECT id, full_name FROM users
+                WHERE email = %s
+                  AND reset_code = %s
+                  AND reset_code_expires_at > NOW()
+                LIMIT 1
+                """,
+                (email.strip(), code.strip()),
+            )
+            return cursor.fetchone()
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
+    @staticmethod
+    def reset_password(user_id, new_plain_password):
+        import bcrypt
+
+        conn = None
+        cursor = None
+        try:
+            hashed = bcrypt.hashpw(
+                new_plain_password.encode("utf-8"),
+                bcrypt.gensalt(),
+            ).decode("utf-8")
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                UPDATE users
+                SET password = %s,
+                    reset_code = NULL,
+                    reset_code_expires_at = NULL
+                WHERE id = %s
+                """,
+                (hashed, user_id),
+            )
+            conn.commit()
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
 
 
 UserModel = LoginModel

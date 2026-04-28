@@ -11,19 +11,27 @@ class AccountController:
         return user
 
     @classmethod
-    def update_profile(cls, full_name, username):
+    def update_profile(cls, full_name, username, email=None):
         user = cls._current_user()
         full_name = (full_name or "").strip()
         username = (username or "").strip()
+        email = (email or "").strip() or None
 
         if not full_name:
             raise ValueError("Full name cannot be empty.")
         if not username:
             raise ValueError("Username cannot be empty.")
+        if email and "@" not in email:
+            raise ValueError("Please enter a valid email address.")
 
-        updated_user = AccountModel.update_profile(user["id"], full_name, username)
+        updated_user = AccountModel.update_profile(user["id"], full_name, username, email)
         if not updated_user:
             raise ValueError("Unable to refresh the updated user profile.")
+        updated_user.update({
+            "full_name": full_name,
+            "username": username,
+            "email": email,
+        })
 
         LoginController.set_current_user(updated_user)
         return updated_user

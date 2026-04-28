@@ -397,6 +397,27 @@ class LoginView(QMainWindow):
         sign_btn.clicked.connect(self.handle_login)
         cl.addWidget(sign_btn)
 
+        forgot_row = QHBoxLayout()
+        forgot_row.setContentsMargins(0, 8, 0, 0)
+        forgot_row.addStretch()
+        forgot_btn = QPushButton("Forgot password?")
+        forgot_btn.setCursor(Qt.PointingHandCursor)
+        forgot_btn.setFont(QFont(INTER_FAMILY, 11))
+        forgot_btn.setStyleSheet(f"""
+            QPushButton {{
+                color: {TEAL};
+                background: transparent;
+                border: none;
+                text-decoration: underline;
+            }}
+            QPushButton:hover {{
+                color: {TEAL_DARK};
+            }}
+        """)
+        forgot_btn.clicked.connect(self._open_forgot_password)
+        forgot_row.addWidget(forgot_btn)
+        cl.addLayout(forgot_row)
+
         root.addWidget(card, alignment=Qt.AlignHCenter)
         root.addStretch(2)
 
@@ -521,6 +542,17 @@ class LoginView(QMainWindow):
 
         # Login success — route to appropriate dashboard based on role
         self._open_dashboard(dashboard)
+
+    def _open_forgot_password(self):
+        from views.admin_dashboard_view import ForgotPasswordModal
+        if not hasattr(self, "_forgot_modal") or self._forgot_modal is None:
+            self._forgot_modal = ForgotPasswordModal(self.centralWidget())
+        self._forgot_modal.open()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_forgot_modal") and self._forgot_modal:
+            self._forgot_modal.setGeometry(self.centralWidget().rect())
 
     def paintEvent(self, event):
         painter = QPainter(self)

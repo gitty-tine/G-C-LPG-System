@@ -12,7 +12,7 @@ class AccountModel:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute(
-                "SELECT id, full_name, username, password, role "
+                "SELECT id, full_name, username, password, role, email "
                 "FROM users WHERE id = %s LIMIT 1",
                 (user_id,)
             )
@@ -32,14 +32,17 @@ class AccountModel:
             return False
 
     @staticmethod
-    def update_profile(user_id, full_name, username):
+    def update_profile(user_id, full_name, username, email=None):
         conn = None
         cursor = None
         try:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
-            cursor.callproc("sp_update_user_profile", [user_id, full_name, username])
+            cursor.callproc(
+                "sp_update_user_profile",
+                [user_id, full_name, username, email or None]
+            )
             conn.commit()
             return AccountModel.get_user_by_id(user_id)
         except Exception:

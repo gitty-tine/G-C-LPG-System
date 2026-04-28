@@ -1451,10 +1451,10 @@ class OwnerDashboardView(QMainWindow):
         self._dropdown.raise_()
         self._sync_dropdown_state()
 
-    def _default_update_profile(self, new_name, new_username):
+    def _default_update_profile(self, new_name, new_username, new_email=None):
         from controllers.account_controller import AccountController
 
-        return AccountController().update_profile(new_name, new_username)
+        return AccountController().update_profile(new_name, new_username, new_email)
 
     def _default_change_password(self, current, new):
         from controllers.account_controller import AccountController
@@ -1557,6 +1557,7 @@ class OwnerDashboardView(QMainWindow):
         self._name_modal.open(
             str(self._user.get("full_name", "") or "").strip(),
             str(self._user.get("username", "") or "").strip(),
+            str(self._user.get("email", "") or "").strip(),
             self._update_name,
         )
 
@@ -1574,9 +1575,11 @@ class OwnerDashboardView(QMainWindow):
             greet = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
             self._greeting_title.setText(f"{greet}, {self._greeting_name()}")
 
-    def _update_name(self, new_name, new_username):
+    def _update_name(self, new_name, new_username, new_email=None):
         try:
-            self._user = self._action_handlers["update_profile"](new_name, new_username)
+            self._user = self._action_handlers["update_profile"](
+                new_name, new_username, new_email
+            )
             self._refresh_profile_texts()
             QMessageBox.information(self, "Profile Updated", "Your profile has been updated.")
             return True

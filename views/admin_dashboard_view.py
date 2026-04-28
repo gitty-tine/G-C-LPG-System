@@ -299,18 +299,18 @@ class Modal(QFrame):
         self._drag_active = False
         self._drag_offset = QPoint()
         self.setObjectName("modal")
-        self.setFixedWidth(340)
+        self.setFixedWidth(460)
         self.setStyleSheet(f"""
             QFrame#modal {{
                 background:{WHITE};
                 border:1px solid {GRAY_2};
-                border-radius:8px;
+                border-radius:12px;
             }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(32)
-        shadow.setOffset(0, 8)
-        shadow.setColor(QColor(0, 0, 0, 60))
+        shadow.setBlurRadius(40)
+        shadow.setOffset(0, 12)
+        shadow.setColor(QColor(0, 0, 0, 80))
         self.setGraphicsEffect(shadow)
 
         self._lay = QVBoxLayout(self)
@@ -319,13 +319,17 @@ class Modal(QFrame):
 
         # Header
         header = QWidget()
-        header.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+        header.setFixedHeight(56)
+        header.setStyleSheet(
+            f"background:{TEAL_DARK};border:none;"
+            f"border-top-left-radius:12px;border-top-right-radius:12px;"
+        )
         h_lay = QHBoxLayout(header)
-        h_lay.setContentsMargins(18, 16, 14, 14)
+        h_lay.setContentsMargins(20, 0, 20, 0)
 
         title_lbl = QLabel(title)
-        title_lbl.setFont(playfair(15))
-        title_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+        title_lbl.setFont(playfair(15, QFont.Medium))
+        title_lbl.setStyleSheet("color:#ffffff;background:transparent;border:none;")
 
         h_lay.addWidget(title_lbl)
         h_lay.addStretch()
@@ -333,35 +337,48 @@ class Modal(QFrame):
 
         self.body = QWidget()
         self.body.setStyleSheet("background:transparent;border:none;")
+        self.body.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.body_lay = QVBoxLayout(self.body)
-        self.body_lay.setContentsMargins(18, 18, 18, 18)
-        self.body_lay.setSpacing(14)
+        self.body_lay.setContentsMargins(24, 20, 24, 20)
+        self.body_lay.setSpacing(16)
         self._lay.addWidget(self.body)
 
         # Footer
         footer = QWidget()
-        footer.setStyleSheet(f"background:transparent;border:none;border-top:1px solid {GRAY_2};")
+        footer.setFixedHeight(56)
+        footer.setStyleSheet(
+            f"background:#f9fafa;border:none;"
+            f"border-bottom-left-radius:12px;border-bottom-right-radius:12px;"
+        )
         f_lay = QHBoxLayout(footer)
-        f_lay.setContentsMargins(18, 12, 18, 12)
-        f_lay.setSpacing(8)
+        f_lay.setContentsMargins(20, 0, 20, 0)
+        f_lay.setSpacing(10)
         f_lay.addStretch()
 
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setCursor(Qt.PointingHandCursor)
         self.cancel_btn.setFont(inter(12, QFont.Medium))
-        self.cancel_btn.setFixedHeight(30)
+        self.cancel_btn.setFixedHeight(34)
         self.cancel_btn.setStyleSheet(f"""
-            QPushButton{{color:{GRAY_5};background:{WHITE};border:1px solid {GRAY_2};border-radius:4px;padding:0 16px;}}
-            QPushButton:hover{{background:{GRAY_1};}}
+            QPushButton{{
+                color:{GRAY_5};background:{WHITE};
+                border:1px solid {GRAY_2};border-radius:6px;
+                padding:0 18px;
+            }}
+            QPushButton:hover{{background:{GRAY_1};border-color:{GRAY_3};}}
         """)
         self.cancel_btn.clicked.connect(self._on_close)
 
         self.save_btn = QPushButton("Save changes")
         self.save_btn.setCursor(Qt.PointingHandCursor)
         self.save_btn.setFont(inter(12, QFont.Medium))
-        self.save_btn.setFixedHeight(30)
+        self.save_btn.setFixedHeight(34)
         self.save_btn.setStyleSheet(f"""
-            QPushButton{{color:{WHITE};background:{TEAL};border:1px solid {TEAL};border-radius:4px;padding:0 16px;}}
+            QPushButton{{
+                color:{WHITE};background:{TEAL};
+                border:1px solid {TEAL};border-radius:6px;
+                padding:0 18px;
+            }}
             QPushButton:hover{{background:{TEAL_DARK};border-color:{TEAL_DARK};}}
         """)
 
@@ -372,8 +389,20 @@ class Modal(QFrame):
     def _on_close(self):
         self.parent().hide()
 
+    def _adjust_height(self):
+        self.body_lay.activate()
+        body_h = self.body_lay.sizeHint().height()
+        self.body.setMinimumHeight(body_h)
+        self.body.setMaximumHeight(body_h)
+        self.setFixedHeight(56 + body_h + 56)
+
+    def _set_body_height(self, body_h):
+        self.body.setMinimumHeight(body_h)
+        self.body.setMaximumHeight(body_h)
+        self.setFixedHeight(56 + body_h + 56)
+
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and event.position().y() <= 52:
+        if event.button() == Qt.LeftButton and event.position().y() <= 56:
             self._drag_active = True
             self._drag_offset = event.position().toPoint()
             event.accept()
@@ -385,9 +414,10 @@ class Modal(QFrame):
             new_pos = self.mapToParent(event.position().toPoint() - self._drag_offset)
             max_x = max(0, self.parent().width() - self.width())
             max_y = max(0, self.parent().height() - self.height())
-            clamped_x = min(max(0, new_pos.x()), max_x)
-            clamped_y = min(max(0, new_pos.y()), max_y)
-            self.move(clamped_x, clamped_y)
+            self.move(
+                min(max(0, new_pos.x()), max_x),
+                min(max(0, new_pos.y()), max_y),
+            )
             event.accept()
             return
         super().mouseMoveEvent(event)
@@ -400,6 +430,7 @@ class Modal(QFrame):
     def _field(self, label_text, placeholder, echo=QLineEdit.Normal):
         grp = QWidget()
         grp.setStyleSheet("background:transparent;border:none;")
+        grp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         g_lay = QVBoxLayout(grp)
         g_lay.setContentsMargins(0, 0, 0, 0)
         g_lay.setSpacing(6)
@@ -412,14 +443,19 @@ class Modal(QFrame):
         inp.setPlaceholderText(placeholder)
         inp.setEchoMode(echo)
         inp.setFont(inter(12))
-        inp.setFixedHeight(32)
+        inp.setFixedHeight(44)
+        inp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         inp.setStyleSheet(f"""
             QLineEdit{{
-                color:{GRAY_5};background:{WHITE};
-                border:1px solid {GRAY_2};border-radius:4px;
-                padding:0 10px;
+                min-height:44px;
+                max-height:44px;
+                color:{GRAY_5};background:#f9fafa;
+                border:1.5px solid {GRAY_2};border-radius:6px;
+                padding:0 12px;
             }}
-            QLineEdit:focus{{border-color:{TEAL};}}
+            QLineEdit:focus{{
+                border-color:{TEAL};background:{WHITE};
+            }}
         """)
         g_lay.addWidget(lbl)
         g_lay.addWidget(inp)
@@ -427,17 +463,38 @@ class Modal(QFrame):
 
 
 # ── Edit name modal ───────────────────────────────────────────────────────────
+def _shake(widget, parent, offset=8, duration=300):
+    from PySide6.QtCore import QEasingCurve, QPropertyAnimation
+
+    base_pos = widget.pos()
+    anim = QPropertyAnimation(widget, b"pos", parent)
+    anim.setDuration(duration)
+    anim.setKeyValueAt(0.0, base_pos)
+    anim.setKeyValueAt(0.15, base_pos + QPoint(-offset, 0))
+    anim.setKeyValueAt(0.30, base_pos + QPoint(offset, 0))
+    anim.setKeyValueAt(0.45, base_pos + QPoint(-offset + 3, 0))
+    anim.setKeyValueAt(0.60, base_pos + QPoint(offset - 3, 0))
+    anim.setKeyValueAt(0.80, base_pos + QPoint(-2, 0))
+    anim.setKeyValueAt(1.0, base_pos)
+    anim.setEasingCurve(QEasingCurve.OutCubic)
+    anim.start()
+    parent._shake_anim = anim
+
+
 class EditNameModal(ModalOverlay):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._modal = Modal("Edit Profile", self)
-        grp1, self.name_input = self._modal._field("FULL NAME", "Enter your full name")
+        grp1, self.name_input     = self._modal._field("FULL NAME", "Enter your full name")
         grp2, self.username_input = self._modal._field("USERNAME", "Enter your username")
+        grp3, self.email_input    = self._modal._field("EMAIL ADDRESS", "Enter your email (for password reset)")
         self._modal.body_lay.addWidget(grp1)
         self._modal.body_lay.addWidget(grp2)
+        self._modal.body_lay.addWidget(grp3)
 
         self.err_lbl = QLabel("")
         self.err_lbl.setFont(inter(11))
+        self.err_lbl.setWordWrap(True)
         self.err_lbl.setStyleSheet(f"color:{RED};background:transparent;border:none;")
         self.err_lbl.hide()
         self._modal.body_lay.addWidget(self.err_lbl)
@@ -445,30 +502,49 @@ class EditNameModal(ModalOverlay):
         self._modal.save_btn.setText("Save changes")
         self._modal.save_btn.clicked.connect(self._save)
 
-    def open(self, current_name, current_username, callback):
+    def open(self, current_name, current_username, current_email, callback):
         self._callback = callback
         self.name_input.setText(current_name)
         self.username_input.setText(current_username)
+        self.email_input.setText(current_email or "")
         self.err_lbl.hide()
         if self.parent():
             self.setGeometry(self.parent().rect())
+        self._modal._adjust_height()
         self._center_modal()
         self.show()
         self.raise_()
 
+    def _show_error(self, msg, *fields):
+        self.err_lbl.setText(msg)
+        self.err_lbl.show()
+        for f in fields:
+            f.setStyleSheet(f.styleSheet().replace(
+                f"border:1.5px solid {GRAY_2}", f"border:1.5px solid {RED}"
+            ))
+            _shake(f, self, offset=6)
+
     def _save(self):
         full_name = self.name_input.text().strip()
-        username = self.username_input.text().strip()
+        username  = self.username_input.text().strip()
+        email     = self.email_input.text().strip()
+
+        for inp in [self.name_input, self.username_input, self.email_input]:
+            inp.setStyleSheet(inp.styleSheet().replace(
+                f"border:1.5px solid {RED}", f"border:1.5px solid {GRAY_2}"
+            ))
+
         if not full_name:
-            self.err_lbl.setText("Full name cannot be empty.")
-            self.err_lbl.show()
+            self._show_error("Full name cannot be empty.", self.name_input)
             return
         if not username:
-            self.err_lbl.setText("Username cannot be empty.")
-            self.err_lbl.show()
+            self._show_error("Username cannot be empty.", self.username_input)
+            return
+        if email and "@" not in email:
+            self._show_error("Please enter a valid email address.", self.email_input)
             return
         if hasattr(self, "_callback"):
-            if self._callback(full_name, username) is False:
+            if self._callback(full_name, username, email or None) is False:
                 return
         self.hide()
 
@@ -480,15 +556,22 @@ class ChangePasswordModal(ModalOverlay):
         self._modal = Modal("Change Password", self)
         self._modal.save_btn.setText("Update password")
 
-        grp1, self.current_pass = self._modal._field("CURRENT PASSWORD",  "Enter current password",  QLineEdit.Password)
-        grp2, self.new_pass     = self._modal._field("NEW PASSWORD",       "Enter new password",       QLineEdit.Password)
-        grp3, self.confirm_pass = self._modal._field("CONFIRM NEW PASSWORD","Confirm new password",    QLineEdit.Password)
+        grp1, self.current_pass = self._modal._field(
+            "CURRENT PASSWORD", "Enter current password", QLineEdit.Password
+        )
+        grp2, self.new_pass = self._modal._field(
+            "NEW PASSWORD", "Enter new password", QLineEdit.Password
+        )
+        grp3, self.confirm_pass = self._modal._field(
+            "CONFIRM NEW PASSWORD", "Confirm new password", QLineEdit.Password
+        )
 
         for g in [grp1, grp2, grp3]:
             self._modal.body_lay.addWidget(g)
 
         self.err_lbl = QLabel("")
         self.err_lbl.setFont(inter(11))
+        self.err_lbl.setWordWrap(True)
         self.err_lbl.setStyleSheet(f"color:{RED};background:transparent;border:none;")
         self.err_lbl.hide()
         self._modal.body_lay.addWidget(self.err_lbl)
@@ -501,23 +584,237 @@ class ChangePasswordModal(ModalOverlay):
         self.new_pass.clear()
         self.confirm_pass.clear()
         self.err_lbl.hide()
+        for inp in [self.current_pass, self.new_pass, self.confirm_pass]:
+            inp.setStyleSheet(inp.styleSheet().replace(
+                f"border:1.5px solid {RED}", f"border:1.5px solid {GRAY_2}"
+            ))
         if self.parent():
             self.setGeometry(self.parent().rect())
+        self._modal._adjust_height()
         self._center_modal()
         self.show()
         self.raise_()
 
+    def _show_error(self, msg, *fields):
+        self.err_lbl.setText(msg)
+        self.err_lbl.show()
+        for f in fields:
+            f.setStyleSheet(f.styleSheet().replace(
+                f"border:1.5px solid {GRAY_2}", f"border:1.5px solid {RED}"
+            ))
+            _shake(f, self, offset=6)
+
     def _save(self):
         np = self.new_pass.text()
         cp = self.confirm_pass.text()
-        if not np or np != cp:
-            self.err_lbl.setText("Passwords do not match.")
-            self.err_lbl.show()
+
+        for inp in [self.current_pass, self.new_pass, self.confirm_pass]:
+            inp.setStyleSheet(inp.styleSheet().replace(
+                f"border:1.5px solid {RED}", f"border:1.5px solid {GRAY_2}"
+            ))
+
+        if not self.current_pass.text():
+            self._show_error("Current password is required.", self.current_pass)
+            return
+        if not np:
+            self._show_error("New password cannot be empty.", self.new_pass)
+            return
+        if not cp or np != cp:
+            self._show_error("Passwords do not match.", self.new_pass, self.confirm_pass)
             return
         if hasattr(self, "_callback"):
             if self._callback(self.current_pass.text(), np) is False:
                 return
         self.hide()
+
+
+# ── Forgot password modal ─────────────────────────────────────────────────────
+class ForgotPasswordModal(ModalOverlay):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._step    = 1
+        self._user_id = None
+        self._email   = None
+        self._modal   = Modal("Forgot Password", self)
+        self._modal.save_btn.setText("Send Code")
+        self._modal.save_btn.clicked.connect(self._handle_step)
+        self._build_step1()
+
+    def _clear_body(self):
+        self._modal.body.setMinimumHeight(0)
+        self._modal.body.setMaximumHeight(16777215)
+        while self._modal.body_lay.count():
+            item = self._modal.body_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _build_step1(self):
+        self._clear_body()
+        self._step = 1
+        self._modal.save_btn.setText("Send Code")
+
+        grp, self.email_input = self._modal._field(
+            "EMAIL ADDRESS", "Enter your registered email"
+        )
+        self._modal.body_lay.addWidget(grp)
+
+        hint = QLabel("We'll send a 6-digit reset code to your email.")
+        hint.setFont(inter(10))
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        self._modal.body_lay.addWidget(hint)
+
+        self.err_lbl = QLabel("")
+        self.err_lbl.setFont(inter(11))
+        self.err_lbl.setWordWrap(True)
+        self.err_lbl.setStyleSheet(f"color:{RED};background:transparent;border:none;")
+        self.err_lbl.hide()
+        self._modal.body_lay.addWidget(self.err_lbl)
+        self._modal._set_body_height(180)
+
+    def _build_step2(self):
+        self._clear_body()
+        self._step = 2
+        self._modal.save_btn.setText("Verify Code")
+
+        hint = QLabel(f"A 6-digit code was sent to:\n{self._email}")
+        hint.setFont(inter(11))
+        hint.setWordWrap(True)
+        hint.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        self._modal.body_lay.addWidget(hint)
+
+        grp, self.code_input = self._modal._field("RESET CODE", "Enter 6-digit code")
+        self.code_input.setMaxLength(6)
+        self.code_input.setAlignment(Qt.AlignCenter)
+        self.code_input.setFont(inter(18, QFont.DemiBold))
+        self._modal.body_lay.addWidget(grp)
+
+        self.err_lbl = QLabel("")
+        self.err_lbl.setFont(inter(11))
+        self.err_lbl.setWordWrap(True)
+        self.err_lbl.setStyleSheet(f"color:{RED};background:transparent;border:none;")
+        self.err_lbl.hide()
+        self._modal.body_lay.addWidget(self.err_lbl)
+        self._modal._set_body_height(205)
+
+    def _build_step3(self):
+        self._clear_body()
+        self._step = 3
+        self._modal.save_btn.setText("Reset Password")
+
+        grp1, self.new_pass     = self._modal._field(
+            "NEW PASSWORD", "Enter new password", QLineEdit.Password
+        )
+        grp2, self.confirm_pass = self._modal._field(
+            "CONFIRM PASSWORD", "Confirm new password", QLineEdit.Password
+        )
+        self._modal.body_lay.addWidget(grp1)
+        self._modal.body_lay.addWidget(grp2)
+
+        self.err_lbl = QLabel("")
+        self.err_lbl.setFont(inter(11))
+        self.err_lbl.setWordWrap(True)
+        self.err_lbl.setStyleSheet(f"color:{RED};background:transparent;border:none;")
+        self.err_lbl.hide()
+        self._modal.body_lay.addWidget(self.err_lbl)
+        self._modal._set_body_height(250)
+
+    def _show_error(self, msg, *fields):
+        self.err_lbl.setText(msg)
+        self.err_lbl.show()
+        for f in fields:
+            f.setStyleSheet(f.styleSheet().replace(
+                f"border:1.5px solid {GRAY_2}", f"border:1.5px solid {RED}"
+            ))
+            _shake(f, self, offset=6)
+
+    def _handle_step(self):
+        if self._step == 1:
+            self._send_code()
+        elif self._step == 2:
+            self._verify_code()
+        elif self._step == 3:
+            self._do_reset()
+
+    def _send_code(self):
+        from models.login_model import LoginModel
+        from utils.email_sender import send_reset_code
+
+        email = self.email_input.text().strip()
+        if not email or "@" not in email:
+            self._show_error("Please enter a valid email address.", self.email_input)
+            return
+
+        user = LoginModel.get_user_by_email(email)
+        if not user:
+            self._show_error("No account found with that email address.", self.email_input)
+            return
+
+        code = LoginModel.generate_reset_code()
+        LoginModel.save_reset_code(user["id"], code)
+
+        try:
+            send_reset_code(email, code, user.get("full_name", ""))
+        except Exception as exc:
+            self._show_error(f"Failed to send email: {exc}")
+            return
+
+        self._email = email
+        self._build_step2()
+        self._center_modal()
+
+    def _verify_code(self):
+        from models.login_model import LoginModel
+
+        code = self.code_input.text().strip()
+        if not code or len(code) != 6:
+            self._show_error("Please enter the 6-digit code.", self.code_input)
+            return
+
+        user = LoginModel.verify_reset_code(self._email, code)
+        if not user:
+            self._show_error("Invalid or expired code. Please try again.", self.code_input)
+            return
+
+        self._user_id = user["id"]
+        self._build_step3()
+        self._center_modal()
+
+    def _do_reset(self):
+        from models.login_model import LoginModel
+
+        new_pass     = self.new_pass.text()
+        confirm_pass = self.confirm_pass.text()
+
+        for inp in [self.new_pass, self.confirm_pass]:
+            inp.setStyleSheet(inp.styleSheet().replace(
+                f"border:1.5px solid {RED}", f"border:1.5px solid {GRAY_2}"
+            ))
+
+        if not new_pass:
+            self._show_error("Password cannot be empty.", self.new_pass)
+            return
+        if len(new_pass) < 8:
+            self._show_error("Password must be at least 8 characters.", self.new_pass)
+            return
+        if new_pass != confirm_pass:
+            self._show_error("Passwords do not match.", self.new_pass, self.confirm_pass)
+            return
+
+        LoginModel.reset_password(self._user_id, new_pass)
+        self.hide()
+        QMessageBox.information(
+            self.parent(), "Password Reset",
+            "Your password has been reset successfully. Please sign in."
+        )
+
+    def open(self):
+        self._build_step1()
+        if self.parent():
+            self.setGeometry(self.parent().rect())
+        self._center_modal()
+        self.show()
+        self.raise_()
 
 
 # ── Person Icon Widget ───────────────────────────────────────────────────────
@@ -1237,6 +1534,7 @@ class DashboardView(QMainWindow):
         self._name_modal.open(
             str(self._user.get("full_name", "") or "").strip(),
             str(self._user.get("username", "") or "").strip(),
+            str(self._user.get("email", "") or "").strip(),
             self._update_name,
         )
 
@@ -1255,9 +1553,11 @@ class DashboardView(QMainWindow):
             greet = "Good morning" if hour < 12 else "Good afternoon" if hour < 18 else "Good evening"
             self._greeting_title.setText(f"{greet}, {self._greeting_name()}")
 
-    def _update_name(self, new_name, new_username):
+    def _update_name(self, new_name, new_username, new_email=None):
         try:
-            self._user = self._account_controller.update_profile(new_name, new_username)
+            self._user = self._account_controller.update_profile(
+                new_name, new_username, new_email
+            )
             self._refresh_profile_texts()
             QMessageBox.information(self, "Profile Updated", "Your profile has been updated.")
             return True
