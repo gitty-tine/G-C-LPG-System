@@ -211,16 +211,13 @@ class OwnerProductModel:
     
     @staticmethod
     def add(name, cylinder_size, refill_price, new_tank_price, user_id):
-        conn   = None
+        conn = None
         cursor = None
         try:
-            conn   = get_connection()
+            conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
-            cursor.callproc(
-                "sp_add_product",
-                [name, cylinder_size, float(refill_price), float(new_tank_price)]
-            )
+            cursor.callproc("sp_add_product", [name, cylinder_size, float(refill_price), float(new_tank_price)])
             new_id = None
             for result in cursor.stored_results():
                 row = result.fetchone()
@@ -228,83 +225,60 @@ class OwnerProductModel:
                     new_id = row[0]
             conn.commit()
             return new_id
-
         except Exception as e:
-            if conn:
-                conn.rollback()
+            if conn: conn.rollback()
             msg = str(e)
             if "45000" in msg or "1644" in msg:
                 raise ValueError(msg.split(":")[-1].strip())
             raise
         finally:
             if cursor: cursor.close()
-            if conn:   conn.close()
+            if conn: conn.close()
 
     
     @staticmethod
     def update(product_id, name, cylinder_size, refill_price, new_tank_price, user_id):
-        conn   = None
+        conn = None
         cursor = None
         try:
-            conn   = get_connection()
+            conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
-            cursor.callproc(
-                "sp_update_product",
-                [product_id, name, cylinder_size, float(refill_price), float(new_tank_price)]
-            )
+            cursor.callproc("sp_update_product", [product_id, name, cylinder_size, float(refill_price), float(new_tank_price)])
             conn.commit()
             return True
-
         except Exception as e:
-            if conn:
-                conn.rollback()
+            if conn: conn.rollback()
             msg = str(e)
             if "45000" in msg or "1644" in msg:
                 raise ValueError(msg.split(":")[-1].strip())
             raise
         finally:
             if cursor: cursor.close()
-            if conn:   conn.close()
+            if conn: conn.close()
 
     
     @staticmethod
     def delete(product_id, user_id):
-        conn   = None
+        conn = None
         cursor = None
         try:
-            conn   = get_connection()
+            conn = get_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute("SET @current_user_id = %s", (user_id,))
-
-            cursor.execute("""
-                SELECT COUNT(*) AS linked_count
-                FROM delivery_items
-                WHERE product_id = %s
-            """, (product_id,))
-
+            cursor.execute("SELECT COUNT(*) AS linked_count FROM delivery_items WHERE product_id = %s", (product_id,))
             row = cursor.fetchone()
             if row and row["linked_count"] > 0:
-                raise ValueError(
-                    "This product cannot be deleted because it is already linked "
-                    "to existing delivery or transaction records."
-                )
-
-            cursor.execute(
-                "DELETE FROM lpg_products WHERE id = %s",
-                (product_id,)
-            )
-
+                raise ValueError("This product cannot be deleted because it is already linked to existing delivery or transaction records.")
+            cursor.execute("DELETE FROM lpg_products WHERE id = %s", (product_id,))
             conn.commit()
             return True
-
         except Exception:
-            if conn:
-                conn.rollback()
+            if conn: conn.rollback()
             raise
         finally:
             if cursor: cursor.close()
-            if conn:   conn.close()
+            if conn: conn.close()
 
     @staticmethod
     def get_count():

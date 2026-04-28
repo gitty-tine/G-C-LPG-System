@@ -160,16 +160,13 @@ class CustomerModel:
     
     @staticmethod
     def add(full_name, address, contact_number, notes, user_id):
-        conn   = None
+        conn = None
         cursor = None
         try:
-            conn   = get_connection()
+            conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
-            cursor.callproc(
-                "sp_add_customer",
-                [full_name, address, contact_number, notes or '']
-            )
+            cursor.callproc("sp_add_customer", [full_name, address, contact_number, notes or ''])
             new_id = None
             for result in cursor.stored_results():
                 row = result.fetchone()
@@ -178,66 +175,55 @@ class CustomerModel:
             conn.commit()
             return new_id
         except Exception as e:
-            if conn:
-                conn.rollback()
-            msg = str(e)
-            if "45000" in msg or "1644" in msg:
-                clean = msg.split(":")[-1].strip()
-                raise ValueError(clean)
-            raise
-        finally:
-            if cursor: cursor.close()
-            if conn:   conn.close()
-
-    
-    @staticmethod
-    def update(customer_id, full_name, address, contact_number, notes, user_id):
-        conn   = None
-        cursor = None
-        try:
-            conn   = get_connection()
-            cursor = conn.cursor()
-            cursor.execute("SET @current_user_id = %s", (user_id,))
-
-            cursor.callproc(
-                "sp_update_customer",
-                [customer_id, full_name, address, contact_number, notes or '']
-            )
-            conn.commit()
-            return True
-
-        except Exception as e:
-            if conn:
-                conn.rollback()
-            msg = str(e)
-            if "45000" in msg or "1644" in msg:
-                clean = msg.split(":")[-1].strip()
-                raise ValueError(clean)
-            raise
-        finally:
-            if cursor: cursor.close()
-            if conn:   conn.close()
-
-    
-    @staticmethod
-    def delete(customer_id, user_id):
-        conn   = None
-        cursor = None
-        try:
-            conn   = get_connection()
-            cursor = conn.cursor()
-            cursor.execute("SET @current_user_id = %s", (user_id,))
-            cursor.callproc("sp_delete_customer", [customer_id])
-            conn.commit()
-            return True
-
-        except Exception as e:
-            if conn:
-                conn.rollback()
+            if conn: conn.rollback()
             msg = str(e)
             if "45000" in msg or "1644" in msg:
                 raise ValueError(msg.split(":")[-1].strip())
             raise
         finally:
             if cursor: cursor.close()
-            if conn:   conn.close()
+            if conn: conn.close()
+
+    
+    @staticmethod
+    def update(customer_id, full_name, address, contact_number, notes, user_id):
+        conn = None
+        cursor = None
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SET @current_user_id = %s", (user_id,))
+            cursor.callproc("sp_update_customer", [customer_id, full_name, address, contact_number, notes or ''])
+            conn.commit()
+            return True
+        except Exception as e:
+            if conn: conn.rollback()
+            msg = str(e)
+            if "45000" in msg or "1644" in msg:
+                raise ValueError(msg.split(":")[-1].strip())
+            raise
+        finally:
+            if cursor: cursor.close()
+            if conn: conn.close()
+
+    
+    @staticmethod
+    def delete(customer_id, user_id):
+        conn = None
+        cursor = None
+        try:
+            conn = get_connection()
+            cursor = conn.cursor()
+            cursor.execute("SET @current_user_id = %s", (user_id,))
+            cursor.callproc("sp_delete_customer", [customer_id])
+            conn.commit()
+            return True
+        except Exception as e:
+            if conn: conn.rollback()
+            msg = str(e)
+            if "45000" in msg or "1644" in msg:
+                raise ValueError(msg.split(":")[-1].strip())
+            raise
+        finally:
+            if cursor: cursor.close()
+            if conn: conn.close()

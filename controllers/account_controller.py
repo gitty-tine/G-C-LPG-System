@@ -1,6 +1,5 @@
 from controllers.login_controller import LoginController
 from models.account_model import AccountModel
-from models.audit_actor_model import AuditActorModel
 
 
 class AccountController:
@@ -14,7 +13,6 @@ class AccountController:
     @classmethod
     def update_profile(cls, full_name, username):
         user = cls._current_user()
-        before = f"Full Name: {user.get('full_name', '')}, Username: {user.get('username', '')}"
         full_name = (full_name or "").strip()
         username = (username or "").strip()
 
@@ -28,14 +26,6 @@ class AccountController:
             raise ValueError("Unable to refresh the updated user profile.")
 
         LoginController.set_current_user(updated_user)
-        AuditActorModel.sync_actor(
-            "users",
-            user["id"],
-            "UPDATE",
-            user["id"],
-            old_value=before,
-            new_value=f"Full Name: {updated_user.get('full_name', '')}, Username: {updated_user.get('username', '')}",
-        )
         return updated_user
 
     @classmethod
@@ -54,12 +44,4 @@ class AccountController:
             raise ValueError("New password must be different from the current password.")
 
         AccountModel.update_password(user["id"], current_password, new_password)
-        AuditActorModel.sync_actor(
-            "users",
-            user["id"],
-            "UPDATE",
-            user["id"],
-            old_value="Password: hidden",
-            new_value="Password updated",
-        )
         return True

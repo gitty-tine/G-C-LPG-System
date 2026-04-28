@@ -1,17 +1,14 @@
 import os
 import sys
-from datetime import date, datetime
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from models.delivery_model import DeliveryModel
-from models.audit_actor_model import AuditActorModel
 
 
 class DeliveryController:
-    """Thin controller layer over DeliveryModel for views."""
 
     @staticmethod
     def _delivery_snapshot(delivery):
@@ -59,17 +56,7 @@ class DeliveryController:
 
     def update_status(self, delivery_id, new_status, user_id=None):
         try:
-            before = DeliveryModel.get_by_id(delivery_id)
             DeliveryModel.update_status(delivery_id, new_status, user_id or 0)
-            after = DeliveryModel.get_by_id(delivery_id)
-            AuditActorModel.sync_actor(
-                "deliveries",
-                delivery_id,
-                "UPDATE",
-                user_id or 0,
-                old_value=self._delivery_snapshot(before),
-                new_value=self._delivery_snapshot(after),
-            )
             return True, None
         except Exception as e:
             return False, str(e)
@@ -77,15 +64,6 @@ class DeliveryController:
     def create_delivery(self, customer_id, user_id, schedule_date, notes, items):
         try:
             new_id = DeliveryModel.create(customer_id, user_id, schedule_date, notes, items)
-            created = DeliveryModel.get_by_id(new_id)
-            AuditActorModel.sync_actor(
-                "deliveries",
-                new_id,
-                "INSERT",
-                user_id,
-                old_value="-",
-                new_value=self._delivery_snapshot(created),
-            )
             return True, new_id
         except Exception as e:
             return False, str(e)

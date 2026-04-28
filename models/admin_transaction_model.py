@@ -315,24 +315,23 @@ class TransactionModel:
 
 
     @staticmethod
-    def mark_paid(delivery_id):
+    def mark_paid(delivery_id, user_id=None):
         conn = None
         cursor = None
         try:
             conn = get_connection()
             cursor = conn.cursor()
+            if user_id:
+                cursor.execute("SET @current_user_id = %s", (user_id,))
             cursor.callproc("sp_mark_payment", [delivery_id])
             conn.commit()
             return True
         except Exception:
-            if conn:
-                conn.rollback()
+            if conn: conn.rollback()
             raise
         finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
+            if cursor: cursor.close()
+            if conn: conn.close()
 
     
     @staticmethod

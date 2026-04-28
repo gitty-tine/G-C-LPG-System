@@ -9,7 +9,6 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from models.owner_product_model import OwnerProductModel
-from models.audit_actor_model import AuditActorModel
 from controllers.login_controller import LoginController
 
 
@@ -156,26 +155,18 @@ class OwnerProductController(QObject):
             normalized, errors = self.validate_product(product)
             if errors:
                 return False, errors
-
+            user_id = self._current_user_id()
             new_id = OwnerProductModel.add(
                 normalized["name"],
                 normalized["cylinder_size"],
                 normalized["refill_price"],
                 normalized["new_tank_price"],
+                user_id=user_id,
             )
-            product["id"] = new_id
             created = OwnerProductModel.get_by_id(new_id)
-            AuditActorModel.sync_actor(
-                "lpg_products",
-                new_id,
-                "INSERT",
-                self._current_user_id(),
-                old_value="-",
-                new_value=self._product_snapshot(created),
-            )
             self.refresh_products()
             return True, created
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             return False, self._friendly_product_error(exc)
 
     def update_product(self, product):
@@ -183,31 +174,22 @@ class OwnerProductController(QObject):
             product_id = product.get("id")
             if not product_id:
                 return False, {"form": "Product id is required for update."}
-
             normalized, errors = self.validate_product(product, product_id=product_id)
             if errors:
                 return False, errors
-
-            before = OwnerProductModel.get_by_id(product_id)
+            user_id = self._current_user_id()
             OwnerProductModel.update(
                 product_id,
                 normalized["name"],
                 normalized["cylinder_size"],
                 normalized["refill_price"],
                 normalized["new_tank_price"],
+                user_id=user_id,
             )
             after = OwnerProductModel.get_by_id(product_id)
-            AuditActorModel.sync_actor(
-                "lpg_products",
-                product_id,
-                "UPDATE",
-                self._current_user_id(),
-                old_value=self._product_snapshot(before),
-                new_value=self._product_snapshot(after),
-            )
             self.refresh_products()
             return True, after
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             return False, self._friendly_product_error(exc)
 
     def delete_product(self, product):
@@ -215,18 +197,10 @@ class OwnerProductController(QObject):
             product_id = product.get("id")
             if not product_id:
                 raise ValueError("Product id is required for deletion.")
-            existing = OwnerProductModel.get_by_id(product_id)
-            OwnerProductModel.delete(product_id)
-            AuditActorModel.sync_actor(
-                "lpg_products",
-                product_id,
-                "DELETE",
-                self._current_user_id(),
-                old_value=self._product_snapshot(existing),
-                new_value="-",
-            )
+            user_id = self._current_user_id()
+            OwnerProductModel.delete(product_id, user_id=user_id)
             self.refresh_products()
-        except Exception as exc:  # pylint: disable=broad-except
+        except Exception as exc:
             self._error("Delete Product Failed", exc)
 
     # Static helpers (legacy-style) --------------------------------------------------
