@@ -62,6 +62,7 @@ from views.admin_dashboard_view import (
     load_fonts,
     owner_scrollbar_qss,
     playfair,
+    show_success_popup,
 )
 
 
@@ -1597,7 +1598,7 @@ class OwnerDashboardView(QMainWindow):
     def _do_change_password(self, current, new):
         try:
             self._action_handlers["change_password"](current, new)
-            QMessageBox.information(self, "Password Updated", "Your password has been updated.")
+            show_success_popup(self, "Password Updated", "Your password has been updated.")
             return True
         except ValueError as exc:
             self._pass_modal.err_lbl.setText(str(exc))

@@ -5,16 +5,16 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from PySide6.QtCore import Qt, QTimer, QTime, QDate, QPoint
+from PySide6.QtCore import QEasingCurve, QPropertyAnimation, Qt, QTimer, QTime, QDate, QPoint, QSize
 from PySide6.QtGui import (
-    QColor, QFont, QFontDatabase, QPainter,
-    QPixmap, QPen
+    QColor, QFont, QFontDatabase, QIcon, QPainter,
+    QPainterPath, QPixmap, QPen
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
     QLabel, QPushButton, QFrame, QScrollArea, QSizePolicy,
     QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
-    QGraphicsDropShadowEffect, QStackedWidget, QMessageBox
+    QGraphicsDropShadowEffect, QStackedWidget, QMessageBox, QToolButton
 )
 from controllers.account_controller import AccountController
 from controllers.login_controller import LoginController
@@ -90,6 +90,79 @@ def playfair(size, weight=QFont.Normal):
 
 def inter(size, weight=QFont.Normal):
     return font(INTER_FAMILY, size, weight)
+
+
+def password_eye_icon(visible=False):
+    size = 18
+    pix = QPixmap(size, size)
+    pix.fill(Qt.transparent)
+
+    painter = QPainter(pix)
+    painter.setRenderHint(QPainter.Antialiasing)
+
+    pen = QPen(QColor(90, 98, 110), 1.7)
+    painter.setPen(pen)
+
+    path = QPainterPath()
+    path.moveTo(2, size / 2)
+    path.quadTo(size / 2, 2, size - 2, size / 2)
+    path.quadTo(size / 2, size - 2, 2, size / 2)
+    painter.drawPath(path)
+
+    painter.setBrush(QColor(90, 98, 110))
+    painter.drawEllipse(size // 2 - 2, size // 2 - 2, 4, 4)
+
+    if not visible:
+        painter.setPen(QPen(QColor(90, 98, 110), 1.7))
+        painter.drawLine(3, size - 3, size - 3, 3)
+
+    painter.end()
+    return QIcon(pix)
+
+
+def reset_password_visibility(line_edit):
+    if isinstance(line_edit, PasswordLineEdit):
+        line_edit.reset_visibility()
+    else:
+        line_edit.setEchoMode(QLineEdit.Password)
+
+
+class PasswordLineEdit(QLineEdit):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setEchoMode(QLineEdit.Password)
+        self.setTextMargins(0, 0, 48, 0)
+
+        self.eye_btn = QToolButton(self)
+        self.eye_btn.setCursor(Qt.PointingHandCursor)
+        self.eye_btn.setIcon(password_eye_icon(False))
+        self.eye_btn.setIconSize(QSize(18, 18))
+        self.eye_btn.setToolTip("Show password")
+        self.eye_btn.setStyleSheet("""
+            QToolButton {
+                border: none;
+                background: transparent;
+                padding: 0;
+            }
+        """)
+        self.eye_btn.clicked.connect(self._toggle_password)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        btn_size = 28
+        self.eye_btn.setFixedSize(btn_size, btn_size)
+        self.eye_btn.move(self.width() - 54, (self.height() - btn_size) // 2)
+
+    def _toggle_password(self):
+        visible = self.echoMode() == QLineEdit.Password
+        self.setEchoMode(QLineEdit.Normal if visible else QLineEdit.Password)
+        self.eye_btn.setIcon(password_eye_icon(visible))
+        self.eye_btn.setToolTip("Hide password" if visible else "Show password")
+
+    def reset_visibility(self):
+        self.setEchoMode(QLineEdit.Password)
+        self.eye_btn.setIcon(password_eye_icon(False))
+        self.eye_btn.setToolTip("Show password")
 
 
 def owner_scrollbar_qss():
@@ -293,6 +366,132 @@ class ModalOverlay(QWidget):
         super().resizeEvent(event)
 
 
+class SuccessIcon(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(48, 48)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.Antialiasing)
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QColor(TEAL))
+        painter.drawEllipse(0, 0, 48, 48)
+
+        pen = QPen(QColor(WHITE), 3.2)
+        pen.setCapStyle(Qt.RoundCap)
+        pen.setJoinStyle(Qt.RoundJoin)
+        painter.setPen(pen)
+        painter.drawLine(14, 25, 21, 32)
+        painter.drawLine(21, 32, 34, 17)
+        painter.end()
+
+
+class AutoCloseSuccessPopup(QWidget):
+    def __init__(self, parent=None, title="Success", message="", duration_ms=5000):
+        super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
+        self._duration_ms = duration_ms
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setWindowModality(Qt.WindowModal)
+        self.setFixedSize(430, 166)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(12, 12, 12, 12)
+        root.setSpacing(0)
+
+        card = QFrame()
+        card.setObjectName("successPopup")
+        card.setStyleSheet(f"""
+            QFrame#successPopup {{
+                background:{WHITE};
+                border:1px solid {GRAY_2};
+                border-radius:10px;
+            }}
+        """)
+        shadow = QGraphicsDropShadowEffect(card)
+        shadow.setBlurRadius(34)
+        shadow.setOffset(0, 12)
+        shadow.setColor(QColor(0, 0, 0, 70))
+        card.setGraphicsEffect(shadow)
+
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(20, 18, 20, 14)
+        lay.setSpacing(12)
+
+        content = QHBoxLayout()
+        content.setContentsMargins(0, 0, 0, 0)
+        content.setSpacing(16)
+        content.addWidget(SuccessIcon())
+
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(4)
+
+        title_lbl = QLabel(title)
+        title_lbl.setFont(playfair(16, QFont.Medium))
+        title_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+
+        msg_lbl = QLabel(message)
+        msg_lbl.setWordWrap(True)
+        msg_lbl.setFont(inter(12))
+        msg_lbl.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+
+        countdown = QLabel("This will close automatically in 5 seconds.")
+        countdown.setFont(inter(9))
+        countdown.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+        text_col.addWidget(title_lbl)
+        text_col.addWidget(msg_lbl)
+        text_col.addWidget(countdown)
+        content.addLayout(text_col, 1)
+        lay.addLayout(content)
+
+        progress_track = QFrame()
+        progress_track.setFixedHeight(4)
+        progress_track.setStyleSheet(f"background:{TEAL_PALE2};border:none;border-radius:2px;")
+        progress_lay = QHBoxLayout(progress_track)
+        progress_lay.setContentsMargins(0, 0, 0, 0)
+        progress_lay.setSpacing(0)
+
+        self._progress_fill = QFrame()
+        self._progress_fill.setStyleSheet(f"background:{TEAL};border:none;border-radius:2px;")
+        progress_lay.addWidget(self._progress_fill)
+        lay.addWidget(progress_track)
+
+        root.addWidget(card)
+
+    def show_centered(self):
+        if self.parent():
+            parent_center = self.parent().mapToGlobal(self.parent().rect().center())
+            self.move(
+                parent_center.x() - self.width() // 2,
+                parent_center.y() - self.height() // 2,
+            )
+        self.show()
+        self.raise_()
+        QTimer.singleShot(0, self._start_auto_close)
+
+    def _start_auto_close(self):
+        width = self._progress_fill.parentWidget().width()
+        self._progress_fill.setMinimumWidth(0)
+        self._progress_anim = QPropertyAnimation(self._progress_fill, b"maximumWidth", self)
+        self._progress_anim.setStartValue(width)
+        self._progress_anim.setEndValue(0)
+        self._progress_anim.setDuration(self._duration_ms)
+        self._progress_anim.setEasingCurve(QEasingCurve.Linear)
+        self._progress_anim.start()
+        QTimer.singleShot(self._duration_ms, self.close)
+
+
+def show_success_popup(parent, title, message, duration_ms=5000):
+    popup = AutoCloseSuccessPopup(parent, title, message, duration_ms)
+    if parent is not None:
+        parent._success_popup = popup
+    popup.show_centered()
+    return popup
+
+
 class Modal(QFrame):
     def __init__(self, title, parent=None):
         super().__init__(parent)
@@ -455,7 +654,7 @@ class Modal(QFrame):
         lbl.setFont(inter(10, QFont.DemiBold))
         lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.2px;background:transparent;border:none;")
 
-        inp = QLineEdit()
+        inp = PasswordLineEdit() if echo == QLineEdit.Password else QLineEdit()
         inp.setPlaceholderText(placeholder)
         inp.setEchoMode(echo)
         inp.setFont(inter(12))
@@ -611,6 +810,7 @@ class ChangePasswordModal(ModalOverlay):
         self.confirm_pass.clear()
         self.err_lbl.hide()
         for inp in [self.current_pass, self.new_pass, self.confirm_pass]:
+            reset_password_visibility(inp)
             inp.setStyleSheet(inp.styleSheet().replace(
                 f"border:1.5px solid {RED}", f"border:1.5px solid {GRAY_2}"
             ))
@@ -1636,7 +1836,7 @@ class DashboardView(QMainWindow):
     def _do_change_password(self, current, new):
         try:
             self._account_controller.change_password(current, new)
-            QMessageBox.information(self, "Password Updated", "Your password has been updated.")
+            show_success_popup(self, "Password Updated", "Your password has been updated.")
             return True
         except ValueError as exc:
             self._pass_modal.err_lbl.setText(str(exc))
