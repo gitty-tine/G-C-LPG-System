@@ -1583,8 +1583,15 @@ class OwnerDashboardView(QMainWindow):
             self._refresh_profile_texts()
             QMessageBox.information(self, "Profile Updated", "Your profile has been updated.")
             return True
+        except ValueError as exc:
+            self._name_modal.err_lbl.setText(str(exc))
+            self._name_modal.err_lbl.show()
+            return False
         except Exception as exc:
-            QMessageBox.warning(self, "Update Failed", str(exc))
+            from utils.error_handler import clean_db_error
+
+            self._name_modal.err_lbl.setText(clean_db_error(exc))
+            self._name_modal.err_lbl.show()
             return False
 
     def _do_change_password(self, current, new):
@@ -1592,8 +1599,15 @@ class OwnerDashboardView(QMainWindow):
             self._action_handlers["change_password"](current, new)
             QMessageBox.information(self, "Password Updated", "Your password has been updated.")
             return True
+        except ValueError as exc:
+            self._pass_modal.err_lbl.setText(str(exc))
+            self._pass_modal.err_lbl.show()
+            return False
         except Exception as exc:
-            QMessageBox.warning(self, "Update Failed", str(exc))
+            from utils.error_handler import clean_db_error
+
+            self._pass_modal.err_lbl.setText(clean_db_error(exc))
+            self._pass_modal.err_lbl.show()
             return False
 
     def _sign_out(self):

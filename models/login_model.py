@@ -74,16 +74,12 @@ class LoginModel:
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE users
-                SET reset_code = %s,
-                    reset_code_expires_at = DATE_ADD(NOW(), INTERVAL 10 MINUTE)
-                WHERE id = %s
-                """,
-                (code, user_id),
-            )
+            cursor.callproc("sp_save_reset_code", [user_id, code])
             conn.commit()
+        except Exception:
+            if conn:
+                conn.rollback()
+            raise
         finally:
             if cursor:
                 cursor.close()
@@ -127,17 +123,12 @@ class LoginModel:
             ).decode("utf-8")
             conn = get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE users
-                SET password = %s,
-                    reset_code = NULL,
-                    reset_code_expires_at = NULL
-                WHERE id = %s
-                """,
-                (hashed, user_id),
-            )
+            cursor.callproc("sp_change_user_password", [user_id, hashed])
             conn.commit()
+        except Exception:
+            if conn:
+                conn.rollback()
+            raise
         finally:
             if cursor:
                 cursor.close()

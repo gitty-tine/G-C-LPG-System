@@ -299,7 +299,7 @@ class Modal(QFrame):
         self._drag_active = False
         self._drag_offset = QPoint()
         self.setObjectName("modal")
-        self.setFixedWidth(460)
+        self.setFixedWidth(480)
         self.setStyleSheet(f"""
             QFrame#modal {{
                 background:{WHITE};
@@ -390,16 +390,30 @@ class Modal(QFrame):
         self.parent().hide()
 
     def _adjust_height(self):
+        self.body.setFixedWidth(self.width())
+        for i in range(self.body_lay.count()):
+            item = self.body_lay.itemAt(i)
+            if item and item.widget():
+                item.widget().setFixedWidth(self.width() - 48)
+
         self.body_lay.activate()
-        body_h = self.body_lay.sizeHint().height()
+        self.body.adjustSize()
+        body_h = self.body_lay.sizeHint().height() + 16
         self.body.setMinimumHeight(body_h)
         self.body.setMaximumHeight(body_h)
         self.setFixedHeight(56 + body_h + 56)
+        self.setFixedWidth(480)
 
     def _set_body_height(self, body_h):
+        self.body.setFixedWidth(self.width())
+        for i in range(self.body_lay.count()):
+            item = self.body_lay.itemAt(i)
+            if item and item.widget():
+                item.widget().setFixedWidth(self.width() - 48)
         self.body.setMinimumHeight(body_h)
         self.body.setMaximumHeight(body_h)
         self.setFixedHeight(56 + body_h + 56)
+        self.setFixedWidth(480)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton and event.position().y() <= 56:
@@ -431,6 +445,8 @@ class Modal(QFrame):
         grp = QWidget()
         grp.setStyleSheet("background:transparent;border:none;")
         grp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        grp.setMinimumWidth(0)
+        grp.setMaximumWidth(16777215)
         g_lay = QVBoxLayout(grp)
         g_lay.setContentsMargins(0, 0, 0, 0)
         g_lay.setSpacing(6)
@@ -444,6 +460,8 @@ class Modal(QFrame):
         inp.setEchoMode(echo)
         inp.setFont(inter(12))
         inp.setFixedHeight(44)
+        inp.setMinimumWidth(0)
+        inp.setMaximumWidth(16777215)
         inp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         inp.setStyleSheet(f"""
             QLineEdit{{
@@ -510,10 +528,9 @@ class EditNameModal(ModalOverlay):
         self.err_lbl.hide()
         if self.parent():
             self.setGeometry(self.parent().rect())
-        self._modal._adjust_height()
-        self._center_modal()
         self.show()
         self.raise_()
+        QTimer.singleShot(0, lambda: (self._modal._adjust_height(), self._center_modal()))
 
     def _show_error(self, msg, *fields):
         self.err_lbl.setText(msg)
@@ -523,11 +540,15 @@ class EditNameModal(ModalOverlay):
                 f"border:1.5px solid {GRAY_2}", f"border:1.5px solid {RED}"
             ))
             _shake(f, self, offset=6)
+        self._modal._adjust_height()
+        self._center_modal()
 
     def _save(self):
+        from utils.validators import validate_email
+
         full_name = self.name_input.text().strip()
         username  = self.username_input.text().strip()
-        email     = self.email_input.text().strip()
+        email     = self.email_input.text()
 
         for inp in [self.name_input, self.username_input, self.email_input]:
             inp.setStyleSheet(inp.styleSheet().replace(
@@ -540,11 +561,16 @@ class EditNameModal(ModalOverlay):
         if not username:
             self._show_error("Username cannot be empty.", self.username_input)
             return
-        if email and "@" not in email:
-            self._show_error("Please enter a valid email address.", self.email_input)
-            return
+        if email.strip():
+            is_valid, error = validate_email(email)
+            if not is_valid:
+                self._show_error(error, self.email_input)
+                return
+            email = email.strip()
+        else:
+            email = None
         if hasattr(self, "_callback"):
-            if self._callback(full_name, username, email or None) is False:
+            if self._callback(full_name, username, email) is False:
                 return
         self.hide()
 
@@ -590,10 +616,9 @@ class ChangePasswordModal(ModalOverlay):
             ))
         if self.parent():
             self.setGeometry(self.parent().rect())
-        self._modal._adjust_height()
-        self._center_modal()
         self.show()
         self.raise_()
+        QTimer.singleShot(0, lambda: (self._modal._adjust_height(), self._center_modal()))
 
     def _show_error(self, msg, *fields):
         self.err_lbl.setText(msg)
@@ -603,27 +628,47 @@ class ChangePasswordModal(ModalOverlay):
                 f"border:1.5px solid {GRAY_2}", f"border:1.5px solid {RED}"
             ))
             _shake(f, self, offset=6)
+        self._modal._adjust_height()
+        self._center_modal()
 
     def _save(self):
-        np = self.new_pass.text()
-        cp = self.confirm_pass.text()
+        from utils.validators import validate_password_strength
+
+        current = self.current_pass.text()
+        np      = self.new_pass.text()
+        cp      = self.confirm_pass.text()
 
         for inp in [self.current_pass, self.new_pass, self.confirm_pass]:
             inp.setStyleSheet(inp.styleSheet().replace(
                 f"border:1.5px solid {RED}", f"border:1.5px solid {GRAY_2}"
             ))
 
-        if not self.current_pass.text():
+        if not current:
             self._show_error("Current password is required.", self.current_pass)
             return
+
         if not np:
             self._show_error("New password cannot be empty.", self.new_pass)
             return
-        if not cp or np != cp:
+
+        is_valid, error = validate_password_strength(np)
+        if not is_valid:
+            self._show_error(error, self.new_pass)
+            return
+
+        if np != cp:
             self._show_error("Passwords do not match.", self.new_pass, self.confirm_pass)
             return
+
+        if np == current:
+            self._show_error(
+                "New password must be different from your current password.",
+                self.new_pass
+            )
+            return
+
         if hasattr(self, "_callback"):
-            if self._callback(self.current_pass.text(), np) is False:
+            if self._callback(current, np) is False:
                 return
         self.hide()
 
@@ -727,6 +772,8 @@ class ForgotPasswordModal(ModalOverlay):
                 f"border:1.5px solid {GRAY_2}", f"border:1.5px solid {RED}"
             ))
             _shake(f, self, offset=6)
+        self._modal._adjust_height()
+        self._center_modal()
 
     def _handle_step(self):
         if self._step == 1:
@@ -739,11 +786,15 @@ class ForgotPasswordModal(ModalOverlay):
     def _send_code(self):
         from models.login_model import LoginModel
         from utils.email_sender import send_reset_code
+        from utils.validators import validate_email
 
-        email = self.email_input.text().strip()
-        if not email or "@" not in email:
-            self._show_error("Please enter a valid email address.", self.email_input)
+        email_raw = self.email_input.text()
+
+        is_valid, error = validate_email(email_raw)
+        if not is_valid:
+            self._show_error(error, self.email_input)
             return
+        email = email_raw.strip()
 
         user = LoginModel.get_user_by_email(email)
         if not user:
@@ -782,6 +833,8 @@ class ForgotPasswordModal(ModalOverlay):
 
     def _do_reset(self):
         from models.login_model import LoginModel
+        from utils.error_handler import clean_db_error
+        from utils.validators import validate_password_strength
 
         new_pass     = self.new_pass.text()
         confirm_pass = self.confirm_pass.text()
@@ -794,19 +847,27 @@ class ForgotPasswordModal(ModalOverlay):
         if not new_pass:
             self._show_error("Password cannot be empty.", self.new_pass)
             return
-        if len(new_pass) < 8:
-            self._show_error("Password must be at least 8 characters.", self.new_pass)
+
+        is_valid, error = validate_password_strength(new_pass)
+        if not is_valid:
+            self._show_error(error, self.new_pass)
             return
+
         if new_pass != confirm_pass:
             self._show_error("Passwords do not match.", self.new_pass, self.confirm_pass)
             return
 
-        LoginModel.reset_password(self._user_id, new_pass)
-        self.hide()
-        QMessageBox.information(
-            self.parent(), "Password Reset",
-            "Your password has been reset successfully. Please sign in."
-        )
+        try:
+            LoginModel.reset_password(self._user_id, new_pass)
+            self.hide()
+            QMessageBox.information(
+                self.parent(), "Password Reset",
+                "Your password has been reset successfully. Please sign in."
+            )
+        except ValueError as exc:
+            self._show_error(str(exc))
+        except Exception as exc:
+            self._show_error(clean_db_error(exc))
 
     def open(self):
         self._build_step1()
@@ -1561,8 +1622,15 @@ class DashboardView(QMainWindow):
             self._refresh_profile_texts()
             QMessageBox.information(self, "Profile Updated", "Your profile has been updated.")
             return True
+        except ValueError as exc:
+            self._name_modal.err_lbl.setText(str(exc))
+            self._name_modal.err_lbl.show()
+            return False
         except Exception as exc:
-            QMessageBox.warning(self, "Update Failed", str(exc))
+            from utils.error_handler import clean_db_error
+
+            self._name_modal.err_lbl.setText(clean_db_error(exc))
+            self._name_modal.err_lbl.show()
             return False
 
     def _do_change_password(self, current, new):
@@ -1570,8 +1638,15 @@ class DashboardView(QMainWindow):
             self._account_controller.change_password(current, new)
             QMessageBox.information(self, "Password Updated", "Your password has been updated.")
             return True
+        except ValueError as exc:
+            self._pass_modal.err_lbl.setText(str(exc))
+            self._pass_modal.err_lbl.show()
+            return False
         except Exception as exc:
-            QMessageBox.warning(self, "Update Failed", str(exc))
+            from utils.error_handler import clean_db_error
+
+            self._pass_modal.err_lbl.setText(clean_db_error(exc))
+            self._pass_modal.err_lbl.show()
             return False
 
     def _open_customer_view(self):
