@@ -10,20 +10,6 @@ from models.delivery_model import DeliveryModel
 
 class DeliveryController:
 
-    @staticmethod
-    def _delivery_snapshot(delivery):
-        if not delivery:
-            return "-"
-        return ", ".join(
-            str(part).strip()
-            for part in (
-                f"Customer: {delivery.get('customer_name', '')}",
-                f"Date: {delivery.get('schedule_date_fmt') or delivery.get('schedule_date') or ''}",
-                f"Status: {delivery.get('status', '')}",
-            )
-            if str(part).strip()
-        ) or "-"
-
     def list_deliveries(self):
         try:
             return True, DeliveryModel.get_all()
@@ -45,12 +31,6 @@ class DeliveryController:
     def get_items(self, delivery_id):
         try:
             return True, DeliveryModel.get_items(delivery_id)
-        except Exception as e:
-            return False, str(e)
-
-    def get_summary(self):
-        try:
-            return True, DeliveryModel.get_summary_counts()
         except Exception as e:
             return False, str(e)
 

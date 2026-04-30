@@ -50,7 +50,7 @@ CUSTOMER_DELIVERIES_W = 72
 CUSTOMER_LAST_W = 105
 CUSTOMER_NOTES_W = 120
 CUSTOMER_CREATED_W = 105
-CUSTOMER_ACTIONS_W = 112
+CUSTOMER_ACTIONS_W = 128
 
 PLAYFAIR_FAMILY = "Playfair Display"
 INTER_FAMILY    = "Inter"
@@ -947,26 +947,6 @@ class CustomerView(QWidget):
         t_lay.setContentsMargins(0, 0, 0, 0)
         t_lay.setSpacing(0)
 
-        # Table header bar
-        th_bar = QWidget()
-        th_bar.setFixedHeight(56)
-        th_bar.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
-        thb_lay = QHBoxLayout(th_bar)
-        thb_lay.setContentsMargins(18, 0, 18, 0)
-
-        tbl_title = QLabel("Customer List")
-        tbl_title.setFont(playfair(14, QFont.Medium))
-        tbl_title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-
-        self._count_lbl = QLabel("0 records")
-        self._count_lbl.setFont(inter(11))
-        self._count_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-
-        thb_lay.addWidget(tbl_title)
-        thb_lay.addStretch()
-        thb_lay.addWidget(self._count_lbl)
-        t_lay.addWidget(th_bar)
-
         self._customers_page = QWidget()
         self._customers_page.setStyleSheet("background:transparent;border:none;")
         customer_page_lay = QVBoxLayout(self._customers_page)
@@ -974,8 +954,16 @@ class CustomerView(QWidget):
         customer_page_lay.setSpacing(0)
 
         table_header = QWidget()
-        table_header.setFixedHeight(50)
-        table_header.setStyleSheet(f"background:#f4f8f7;border:none;border-bottom:1px solid {GRAY_2};")
+        table_header.setFixedHeight(54)
+        table_header.setStyleSheet(
+            f"""
+            background:#f4f8f7;
+            border:none;
+            border-bottom:1px solid {GRAY_2};
+            border-top-left-radius:8px;
+            border-top-right-radius:8px;
+            """
+        )
         header_lay = QGridLayout(table_header)
         header_lay.setContentsMargins(16, 0, 16, 0)
         header_lay.setHorizontalSpacing(10)
@@ -1222,18 +1210,19 @@ class CustomerView(QWidget):
         edit_btn = QPushButton("Edit")
         edit_btn.setCursor(Qt.PointingHandCursor)
         edit_btn.setFont(inter(10, QFont.Medium))
-        edit_btn.setFixedSize(48, 30)
+        edit_btn.setFixedSize(52, 30)
         edit_btn.setStyleSheet(
             f"""
             QPushButton {{
-                color:{WHITE};
-                background:{TEAL};
-                border:1px solid {TEAL};
-                border-radius:6px;
+                color:{TEAL_DARK};
+                background:#eef8f6;
+                border:1px solid #b9dcd7;
+                border-radius:15px;
             }}
             QPushButton:hover {{
-                background:{TEAL_DARK};
-                border-color:{TEAL_DARK};
+                color:{WHITE};
+                background:{TEAL};
+                border-color:{TEAL};
             }}
             """
         )
@@ -1242,18 +1231,19 @@ class CustomerView(QWidget):
         delete_btn = QPushButton("Delete")
         delete_btn.setCursor(Qt.PointingHandCursor)
         delete_btn.setFont(inter(10, QFont.Medium))
-        delete_btn.setFixedSize(58, 30)
+        delete_btn.setFixedSize(62, 30)
         delete_btn.setStyleSheet(
             f"""
             QPushButton {{
                 color:{RED_BTN};
-                background:{RED_BG};
-                border:1px solid #f4c7c7;
-                border-radius:6px;
+                background:#fff3f3;
+                border:1px solid #f0c7c7;
+                border-radius:15px;
             }}
             QPushButton:hover {{
-                background:#fbdada;
-                border-color:#e4a8a8;
+                color:{WHITE};
+                background:{RED_BTN};
+                border-color:{RED_BTN};
             }}
             """
         )
@@ -1433,8 +1423,6 @@ class CustomerView(QWidget):
         self._summary_deliveries_lbl.setText(str(delivery_records))
 
     def _refresh_counts(self):
-        count = len(self._visible_customers)
-        self._count_lbl.setText(f"{count} record{'s' if count != 1 else ''}")
         self._refresh_empty_state()
 
     def _refresh_empty_state(self):

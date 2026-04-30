@@ -185,26 +185,27 @@ class OwnerKpiCard(QFrame):
     def __init__(self, label, value, desc, top_color, parent=None, value_prefix=""):
         super().__init__(parent)
         self._top_color = top_color
+        self.setObjectName("ownerKpiCard")
         self.setStyleSheet(
             f"""
-            QFrame {{
+            QFrame#ownerKpiCard {{
                 background: {WHITE};
                 border: 1px solid {GRAY_2};
-                border-radius: 6px;
+                border-radius: 8px;
             }}
         """
         )
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setFixedHeight(126)
+        self.setFixedHeight(120)
 
         root_lay = QVBoxLayout(self)
         root_lay.setContentsMargins(0, 0, 0, 0)
         root_lay.setSpacing(0)
 
         top_border = QFrame()
-        top_border.setFixedHeight(3)
+        top_border.setFixedHeight(4)
         top_border.setStyleSheet(
-            f"background:{self._top_color};border:none;border-top-left-radius:6px;border-top-right-radius:6px;"
+            f"background:{self._top_color};border:none;border-top-left-radius:8px;border-top-right-radius:8px;"
         )
         root_lay.addWidget(top_border)
 
@@ -215,13 +216,13 @@ class OwnerKpiCard(QFrame):
         lay.setSpacing(4)
 
         lbl = QLabel(label)
-        lbl.setFont(inter(10, QFont.DemiBold))
+        lbl.setFont(inter(9, QFont.DemiBold))
         lbl.setMinimumHeight(16)
-        lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.5px;background:transparent;border:none;")
+        lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.3px;background:transparent;border:none;")
 
         val = QLabel()
-        val.setFont(inter(20, QFont.Medium))
-        val.setMinimumHeight(42)
+        val.setFont(inter(22, QFont.DemiBold))
+        val.setMinimumHeight(34)
         val.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         val.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
@@ -252,7 +253,8 @@ class SalesChartCard(QFrame):
         super().__init__(parent)
         self._bar_entries = []
 
-        self.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
+        self.setObjectName("salesChartCard")
+        self.setStyleSheet(f"QFrame#salesChartCard{{background:{WHITE};border:1px solid {GRAY_2};border-radius:8px;}}")
         self.setFixedHeight(640)
 
         lay = QVBoxLayout(self)
@@ -260,10 +262,10 @@ class SalesChartCard(QFrame):
         lay.setSpacing(0)
 
         head = QWidget()
-        head.setFixedHeight(80)
-        head.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+        head.setFixedHeight(72)
+        head.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
         h_lay = QHBoxLayout(head)
-        h_lay.setContentsMargins(18, 12, 18, 10)
+        h_lay.setContentsMargins(18, 0, 18, 0)
 
         t = QLabel("Delivered Sales - Current Week")
         t.setFont(playfair(15, QFont.Medium))
@@ -1055,10 +1057,11 @@ class OwnerDashboardView(QMainWindow):
         w = QWidget()
         lay = QVBoxLayout(w)
         lay.setContentsMargins(28, 24, 28, 28)
-        lay.setSpacing(0)
+        lay.setSpacing(14)
 
         header_row = QHBoxLayout()
         left_col = QVBoxLayout()
+        left_col.setSpacing(2)
 
         sub = QLabel("OWNER OVERVIEW")
         sub.setFont(inter(10, QFont.DemiBold))
@@ -1083,16 +1086,9 @@ class OwnerDashboardView(QMainWindow):
         left_col.addWidget(title)
         left_col.addWidget(page_sub)
 
-        rule = QFrame()
-        rule.setFrameShape(QFrame.HLine)
-        rule.setStyleSheet(
-            f"color:{GRAY_2};background:{GRAY_2};border:none;margin-bottom:6px;margin-left:24px;"
-        )
-
         header_row.addLayout(left_col)
-        header_row.addWidget(rule, 1, Qt.AlignBottom)
+        header_row.addStretch()
         lay.addLayout(header_row)
-        lay.addSpacing(22)
 
         stat_block = QWidget()
         stat_lay = QVBoxLayout(stat_block)
@@ -1166,7 +1162,6 @@ class OwnerDashboardView(QMainWindow):
         stat_lay.addLayout(finance_row)
 
         lay.addWidget(stat_block)
-        lay.addSpacing(22)
 
         chart_ops_row = QHBoxLayout()
         chart_ops_row.setSpacing(14)
@@ -1197,7 +1192,6 @@ class OwnerDashboardView(QMainWindow):
         chart_ops_row.addLayout(ops_col, stretch=1)
 
         lay.addLayout(chart_ops_row)
-        lay.addSpacing(28)
 
         lay.addWidget(self._build_recent_transactions_card())
 
@@ -1221,7 +1215,10 @@ class OwnerDashboardView(QMainWindow):
 
     def _build_top_customers_card(self):
         card = QFrame()
-        card.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
+        card.setObjectName("topCustomersCard")
+        card.setStyleSheet(
+            f"QFrame#topCustomersCard{{background:{WHITE};border:1px solid {GRAY_2};border-radius:8px;}}"
+        )
         card.setFixedHeight(360)
         lay = QVBoxLayout(card)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -1229,9 +1226,9 @@ class OwnerDashboardView(QMainWindow):
 
         head = QWidget()
         head.setFixedHeight(60)
-        head.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+        head.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
         h_lay = QHBoxLayout(head)
-        h_lay.setContentsMargins(18, 12, 18, 10)
+        h_lay.setContentsMargins(18, 0, 18, 0)
         t = QLabel("Top Customers This Month")
         t.setFont(playfair(15, QFont.Medium))
         t.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
@@ -1312,9 +1309,9 @@ class OwnerDashboardView(QMainWindow):
             item_lay.addWidget(pct_lbl)
 
             item.setStyleSheet(
-                f"QWidget{{background:{TEAL_PALE};border-radius:4px;border:1px solid {TEAL_LIGHT};}}"
+                f"QWidget{{background:{TEAL_PALE};border-radius:7px;border:1px solid {TEAL_LIGHT};}}"
                 if row_idx == 0
-                else "QWidget{background:transparent;border:none;}"
+                else "QWidget{background:#fbfdfc;border:1px solid #edf2f0;border-radius:7px;}"
             )
             item.setFixedHeight(56)
 
@@ -1326,16 +1323,19 @@ class OwnerDashboardView(QMainWindow):
 
     def _build_recent_transactions_card(self):
         card = QFrame()
-        card.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
+        card.setObjectName("recentTransactionsCard")
+        card.setStyleSheet(
+            f"QFrame#recentTransactionsCard{{background:{WHITE};border:1px solid {GRAY_2};border-radius:8px;}}"
+        )
         lay = QVBoxLayout(card)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
         head = QWidget()
         head.setFixedHeight(60)
-        head.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+        head.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
         h_lay = QHBoxLayout(head)
-        h_lay.setContentsMargins(18, 12, 18, 10)
+        h_lay.setContentsMargins(18, 0, 18, 0)
         t = QLabel("Recent Transactions")
         t.setFont(playfair(15, QFont.Medium))
         t.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
@@ -1491,7 +1491,7 @@ class OwnerDashboardView(QMainWindow):
 
             item.setObjectName("recentTransactionRow")
             item.setStyleSheet(
-                f"QWidget#recentTransactionRow{{background:{GRAY_1};border:1px solid {GRAY_2};border-radius:5px;}}"
+                f"QWidget#recentTransactionRow{{background:#fbfdfc;border:1px solid #edf2f0;border-radius:7px;}}"
             )
             item.setFixedHeight(50)
 
@@ -1500,32 +1500,6 @@ class OwnerDashboardView(QMainWindow):
         content_lay.addStretch()
         lay.addWidget(content)
         return card
-
-    def _build_reports_placeholder_page(self):
-        w = QWidget()
-        lay = QVBoxLayout(w)
-        lay.setContentsMargins(28, 24, 28, 28)
-        lay.setSpacing(0)
-
-        card = QFrame()
-        card.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
-        c_lay = QVBoxLayout(card)
-        c_lay.setContentsMargins(26, 26, 26, 26)
-        c_lay.setSpacing(8)
-
-        title = QLabel("Reports")
-        title.setFont(playfair(22, QFont.Medium))
-        title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-        subtitle = QLabel("Reports page scaffold is ready. Detailed report widgets can be added next.")
-        subtitle.setWordWrap(True)
-        subtitle.setFont(inter(12))
-        subtitle.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-        c_lay.addWidget(title)
-        c_lay.addWidget(subtitle)
-
-        lay.addWidget(card)
-        lay.addStretch()
-        return w
 
     def _toggle_dropdown(self, event=None):
         if self._dropdown_open:

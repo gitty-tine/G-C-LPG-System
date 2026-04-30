@@ -231,28 +231,29 @@ class KpiCard(QFrame):
     def __init__(self, label, value, desc, top_color, parent=None):
         super().__init__(parent)
         self._top_color = QColor(top_color)
+        self.setObjectName("dashboardKpiCard")
         self.setStyleSheet(f"""
-            QFrame {{
+            QFrame#dashboardKpiCard {{
                 background: {WHITE};
                 border: 1px solid {GRAY_2};
-                border-radius: 6px;
+                border-radius: 8px;
             }}
         """)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setFixedHeight(126)
+        self.setFixedHeight(120)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(18, 14, 18, 12)
         lay.setSpacing(4)
 
         lbl = QLabel(label)
-        lbl.setFont(inter(10, QFont.DemiBold))
+        lbl.setFont(inter(9, QFont.DemiBold))
         lbl.setMinimumHeight(16)
-        lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.5px;background:transparent;border:none;")
+        lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.3px;background:transparent;border:none;")
 
         val = QLabel(value)
-        val.setFont(playfair(30, QFont.Medium))
-        val.setMinimumHeight(42)
+        val.setFont(inter(24, QFont.DemiBold))
+        val.setMinimumHeight(34)
         val.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         val.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
@@ -272,7 +273,7 @@ class KpiCard(QFrame):
         p.setRenderHint(QPainter.Antialiasing)
         p.setPen(Qt.NoPen)
         p.setBrush(self._top_color)
-        p.drawRoundedRect(0, 0, self.width(), 3, 1, 1)
+        p.drawRoundedRect(0, 0, self.width(), 4, 1, 1)
 
 
 # ── Profile dropdown ──────────────────────────────────────────────────────────
@@ -1849,39 +1850,6 @@ class DashboardView(QMainWindow):
             self._pass_modal.err_lbl.show()
             return False
 
-    def _open_customer_view(self):
-        from views.customer_view import CustomerView
-
-        if not hasattr(self, "_customer_window") or self._customer_window is None:
-            self._customer_window = QMainWindow()
-            self._customer_window.setWindowTitle("G and C LPG Trading - Customer Management")
-            page = CustomerView(show_topbar=True)
-            self._customer_window.setCentralWidget(page)
-            self._customer_window.showMaximized()
-        else:
-            self._customer_window.centralWidget().reset_view_state()
-            self._customer_window.showMaximized()
-            self._customer_window.raise_()
-            self._customer_window.activateWindow()
-
-        return self._customer_window.centralWidget()
-
-    def _open_delivery_view(self):
-        from views.admin_delivery_view import DeliveryView
-
-        if not hasattr(self, "_delivery_window") or self._delivery_window is None:
-            self._delivery_window = QMainWindow()
-            self._delivery_window.setWindowTitle("G and C LPG Trading - Delivery Management")
-            page = DeliveryView(show_topbar=True, controller=DeliveryController())
-            self._delivery_window.setCentralWidget(page)
-            self._delivery_window.showMaximized()
-        else:
-            self._delivery_window.showMaximized()
-            self._delivery_window.raise_()
-            self._delivery_window.activateWindow()
-
-        return self._delivery_window.centralWidget()
-
     def _quick_action_add_customer(self, event=None):
         self._show_customers_page()
         page = getattr(self, "_embedded_customer_page", None)
@@ -1896,12 +1864,6 @@ class DashboardView(QMainWindow):
 
     def _quick_action_update_status(self, event=None):
         self._show_deliveries_page()
-        page = getattr(self, "_embedded_delivery_page", None)
-        if page is None:
-            return
-
-        if hasattr(page, "_proxy") and page._proxy.rowCount() > 0 and hasattr(page, "open_status"):
-            page.open_status(0)
 
     def _sign_out(self):
         LoginController.logout()
@@ -1984,14 +1946,14 @@ class DashboardView(QMainWindow):
         w.setStyleSheet("background:transparent;")
         lay = QVBoxLayout(w)
         lay.setContentsMargins(28, 24, 28, 28)
-        lay.setSpacing(0)
+        lay.setSpacing(14)
 
         # Page header
         header_row = QHBoxLayout()
         header_row.setSpacing(0)
 
         left_col = QVBoxLayout()
-        left_col.setSpacing(0)
+        left_col.setSpacing(2)
 
         sub = QLabel("OPERATIONS OVERVIEW")
         sub.setFont(inter(10, QFont.DemiBold))
@@ -2014,14 +1976,9 @@ class DashboardView(QMainWindow):
         left_col.addWidget(title)
         left_col.addWidget(page_sub)
 
-        rule = QFrame()
-        rule.setFrameShape(QFrame.HLine)
-        rule.setStyleSheet(f"color:{GRAY_2};background:{GRAY_2};border:none;margin-bottom:6px;margin-left:24px;")
-
         header_row.addLayout(left_col)
-        header_row.addWidget(rule, 1, Qt.AlignBottom)
+        header_row.addStretch()
         lay.addLayout(header_row)
-        lay.addSpacing(22)
 
         kpi_counts = self._dashboard_data.get("kpi_counts", {})
 
@@ -2041,7 +1998,6 @@ class DashboardView(QMainWindow):
             KpiCard("UNPAID", str(self._to_int(kpi_counts.get("unpaid_count"))), "Pending payment", "#a83232")
         )
         lay.addLayout(kpi_row)
-        lay.addSpacing(22)
 
         # Bottom grid
         bottom = QHBoxLayout()
@@ -2064,73 +2020,23 @@ class DashboardView(QMainWindow):
 
         scroll.setWidget(w)
         return scroll
-    
-    def owner_scrollbar_qss():
-        return f"""
-        QScrollArea {{
-            background: transparent;
-            border: none;
-        }}
-        QScrollBar:vertical {{
-            background: transparent;
-            width: 8px;
-            margin: 4px 2px 4px 0;
-            border: none;
-        }}
-        QScrollBar::handle:vertical {{
-            background: {TEAL};
-            min-height: 28px;
-            border-radius: 4px;
-        }}
-        QScrollBar::handle:vertical:hover {{
-            background: {TEAL_MID};
-        }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
-            height: 0px;
-            border: none;
-            background: transparent;
-        }}
-        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
-            background: transparent;
-        }}
-        QScrollBar:horizontal {{
-            background: transparent;
-            height: 8px;
-            margin: 0 2px 2px 2px;
-            border: none;
-        }}
-        QScrollBar::handle:horizontal {{
-            background: {TEAL};
-            min-width: 28px;
-            border-radius: 4px;
-        }}
-        QScrollBar::handle:horizontal:hover {{
-            background: {TEAL_MID};
-        }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
-            width: 0px;
-            border: none;
-            background: transparent;
-        }}
-        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
-            background: transparent;
-        }}
-        """
-
     # ── Delivery table ────────────────────────────────────────────────────────
     def _build_delivery_table(self):
         card = QFrame()
-        card.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
+        card.setObjectName("dashboardTableCard")
+        card.setStyleSheet(
+            f"QFrame#dashboardTableCard{{background:{WHITE};border:1px solid {GRAY_2};border-radius:8px;}}"
+        )
 
         lay = QVBoxLayout(card)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
         head = QWidget()
-        head.setFixedHeight(65)
-        head.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+        head.setFixedHeight(60)
+        head.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
         h_lay = QHBoxLayout(head)
-        h_lay.setContentsMargins(18, 14, 18, 12)
+        h_lay.setContentsMargins(18, 0, 18, 0)
 
         t = QLabel("Today's Deliveries")
         t.setFont(playfair(15, QFont.Medium))
@@ -2138,8 +2044,23 @@ class DashboardView(QMainWindow):
 
         va = QPushButton("View all →")
         va.setCursor(Qt.PointingHandCursor)
-        va.setFont(inter(11, QFont.Medium))
-        va.setStyleSheet(f"color:{TEAL};background:transparent;border:none;")
+        va.setFont(inter(10, QFont.Medium))
+        va.setFixedHeight(30)
+        va.setStyleSheet(
+            f"""
+            QPushButton {{
+                color:{TEAL_DARK};
+                background:{TEAL_PALE};
+                border:1px solid {TEAL_PALE2};
+                border-radius:7px;
+                padding:0 12px;
+            }}
+            QPushButton:hover {{
+                background:#dff3ef;
+                border-color:{TEAL_LIGHT};
+            }}
+            """
+        )
         va.clicked.connect(self._show_deliveries_page)
 
         h_lay.addWidget(t)
@@ -2167,14 +2088,15 @@ class DashboardView(QMainWindow):
         table.setStyleSheet(f"""
             QTableWidget{{
                 background:transparent;border:none;
-                font-family:'{INTER_FAMILY}';font-size:12px;color:{GRAY_5};outline:none;
+                font-family:'{INTER_FAMILY}';font-size:13px;color:{GRAY_5};outline:none;
+                selection-background-color:{TEAL_PALE};
             }}
-            QTableWidget::item{{padding:0;border-bottom:0.5px solid {GRAY_2};}}
+            QTableWidget::item{{padding:0;border-bottom:1px solid #edf2f0;}}
             QTableWidget::item:selected{{background:{TEAL_PALE};color:{TEAL_DARK};}}
             QHeaderView::section{{
-                background:{WHITE};color:{GRAY_4};
-                font-size:12px;font-weight:600;letter-spacing:1.5px;
-                padding:10px 18px 8px;border:none;
+                background:#f4f8f7;color:{GRAY_5};
+                font-size:11px;font-weight:600;letter-spacing:1.1px;
+                padding:13px 18px 12px;border:none;
                 border-bottom:1px solid {GRAY_2};
                 text-align:center;
                 font-family:'{INTER_FAMILY}';
@@ -2205,7 +2127,7 @@ class DashboardView(QMainWindow):
 
             # Customer cell — name + phone
             cust_w = QWidget()
-            cust_w.setStyleSheet("background:transparent;border:none;")
+            cust_w.setStyleSheet("background:#fbfdfc;border:none;")
             cw_lay = QVBoxLayout(cust_w)
             cw_lay.setContentsMargins(12, 8, 12, 8)
             cw_lay.setSpacing(2)
@@ -2223,7 +2145,7 @@ class DashboardView(QMainWindow):
             table.setCellWidget(i, 0, cust_w)
 
             addr_host = QWidget()
-            addr_host.setStyleSheet("background:transparent;border:none;")
+            addr_host.setStyleSheet("background:#fbfdfc;border:none;")
             addr_lay = QVBoxLayout(addr_host)
             addr_lay.setContentsMargins(12, 8, 12, 8)
             addr_lay.setSpacing(0)
@@ -2240,7 +2162,7 @@ class DashboardView(QMainWindow):
             table.setCellWidget(i, 1, addr_host)
 
             prod_host = QWidget()
-            prod_host.setStyleSheet("background:transparent;border:none;")
+            prod_host.setStyleSheet("background:#fbfdfc;border:none;")
             prod_lay = QVBoxLayout(prod_host)
             prod_lay.setContentsMargins(12, 8, 12, 8)
             prod_lay.setSpacing(0)
@@ -2275,7 +2197,7 @@ class DashboardView(QMainWindow):
                 letter-spacing:0.5px;border:none;
             """)
             cell = QWidget()
-            cell.setStyleSheet("background:transparent;border:none;")
+            cell.setStyleSheet("background:#fbfdfc;border:none;")
             cl = QHBoxLayout(cell)
             cl.setContentsMargins(12, 8, 12, 8)
             cl.setAlignment(Qt.AlignCenter)
@@ -2343,17 +2265,20 @@ class DashboardView(QMainWindow):
     # ── Quick actions ─────────────────────────────────────────────────────────
     def _build_quick_actions(self):
         card = QFrame()
-        card.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
+        card.setObjectName("quickActionsCard")
+        card.setStyleSheet(
+            f"QFrame#quickActionsCard{{background:{WHITE};border:1px solid {GRAY_2};border-radius:8px;}}"
+        )
 
         lay = QVBoxLayout(card)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
         head = QWidget()
-        head.setFixedHeight(65)
-        head.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+        head.setFixedHeight(60)
+        head.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
         h_lay = QHBoxLayout(head)
-        h_lay.setContentsMargins(18, 14, 18, 12)
+        h_lay.setContentsMargins(18, 0, 18, 0)
         t = QLabel("Quick Actions")
         t.setFont(playfair(15, QFont.Medium))
         t.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
@@ -2380,17 +2305,17 @@ class DashboardView(QMainWindow):
 
         for i, (lbl, desc, icon_key) in enumerate(actions):
             row = QWidget()
-            row.setFixedHeight(50)
+            row.setFixedHeight(54)
             row.setCursor(Qt.PointingHandCursor)
-            row.setStyleSheet("background:transparent;border:none;")
+            row.setStyleSheet("background:#fbfdfc;border:1px solid #edf2f0;border-radius:7px;")
             r_lay = QHBoxLayout(row)
-            r_lay.setContentsMargins(0, 0, 0, 0)
-            r_lay.setSpacing(10)
+            r_lay.setContentsMargins(10, 0, 10, 0)
+            r_lay.setSpacing(12)
 
             ico = QLabel()
-            ico.setFixedSize(32, 32)
+            ico.setFixedSize(34, 34)
             ico.setAlignment(Qt.AlignCenter)
-            ico.setStyleSheet(f"background:{WHITE};border:1px solid {GRAY_2};border-radius:4px;color:{TEAL};")
+            ico.setStyleSheet(f"background:{TEAL_PALE};border:1px solid {TEAL_PALE2};border-radius:7px;color:{TEAL};")
             action_icon_path = os.path.join(BASE_DIR, "assets", f"{icon_key}.png")
             action_icon_pm = QPixmap(action_icon_path)
             if not action_icon_pm.isNull():
@@ -2426,7 +2351,7 @@ class DashboardView(QMainWindow):
             b_lay.addWidget(row)
 
             if i < len(actions) - 1:
-                b_lay.addWidget(HDivider(GRAY_2))
+                b_lay.addSpacing(8)
 
         lay.addWidget(body)
         return card
@@ -2434,24 +2359,39 @@ class DashboardView(QMainWindow):
     # ── Unpaid deliveries ─────────────────────────────────────────────────────
     def _build_unpaid(self):
         card = QFrame()
-        card.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
+        card.setObjectName("unpaidCard")
+        card.setStyleSheet(
+            f"QFrame#unpaidCard{{background:{WHITE};border:1px solid {GRAY_2};border-radius:8px;}}"
+        )
 
         lay = QVBoxLayout(card)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
         head = QWidget()
-        head.setFixedHeight(65) 
-        head.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+        head.setFixedHeight(60)
+        head.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
         h_lay = QHBoxLayout(head)
-        h_lay.setContentsMargins(18, 14, 18, 12)
+        h_lay.setContentsMargins(18, 0, 18, 0)
         t = QLabel("Unpaid Deliveries")
         t.setFont(playfair(15, QFont.Medium))
         t.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
         va = QPushButton("View all →")
         va.setCursor(Qt.PointingHandCursor)
-        va.setFont(inter(11, QFont.Medium))
-        va.setStyleSheet(f"color:{TEAL};background:transparent;border:none;")
+        va.setFont(inter(10, QFont.Medium))
+        va.setFixedHeight(30)
+        va.setStyleSheet(
+            f"""
+            QPushButton {{
+                color:{TEAL_DARK};
+                background:{TEAL_PALE};
+                border:1px solid {TEAL_PALE2};
+                border-radius:7px;
+                padding:0 12px;
+            }}
+            QPushButton:hover {{ background:#dff3ef;border-color:{TEAL_LIGHT}; }}
+            """
+        )
         va.clicked.connect(self._show_transactions_page)
         h_lay.addWidget(t)
         h_lay.addStretch()
@@ -2479,10 +2419,10 @@ class DashboardView(QMainWindow):
             prod = self._text(item.get("product_summary"), fallback="-")
             amt = self._money(item.get("total_amount"), item.get("total_amount_fmt"))
             row = QWidget()
-            row.setFixedHeight(50)
-            row.setStyleSheet("background:transparent;border:none;")
+            row.setFixedHeight(56)
+            row.setStyleSheet("background:#fbfdfc;border:1px solid #edf2f0;border-radius:7px;")
             r_lay = QHBoxLayout(row)
-            r_lay.setContentsMargins(0, 0, 0, 0)
+            r_lay.setContentsMargins(10, 0, 10, 0)
             r_lay.setSpacing(10)
 
             dot = QLabel()
@@ -2511,7 +2451,7 @@ class DashboardView(QMainWindow):
             b_lay.addWidget(row)
 
             if i < len(preview_items) - 1:
-                b_lay.addWidget(HDivider(GRAY_2))
+                b_lay.addSpacing(8)
 
         lay.addWidget(body)
         return card
@@ -2521,13 +2461,6 @@ class DashboardView(QMainWindow):
             return
         super().keyPressEvent(event)
 
-    def mousePressEvent(self, event):
-        if self._dropdown_open:
-            self._dropdown.hide()
-            self._dropdown_open = False
-            self._chevron.setText("▾")
-        super().mousePressEvent(event)
-    
     def mousePressEvent(self, event):
         if self._dropdown_open:
             self._dropdown.hide()

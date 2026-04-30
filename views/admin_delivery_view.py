@@ -659,31 +659,46 @@ class SummaryCard(QFrame):
 	def __init__(self, label, top_color, parent=None):
 		super().__init__(parent)
 		self._top_color = QColor(top_color)
-		self.setFixedHeight(108)
+		self.setFixedHeight(116)
+		self.setObjectName("deliverySummaryCard")
 		self.setStyleSheet(
 			f"""
-			QFrame {{
+			QFrame#deliverySummaryCard {{
 				background:{WHITE};
 				border:1px solid {GRAY_2};
-				border-radius:6px;
+				border-radius:8px;
 			}}
 			"""
 		)
 
 		lay = QVBoxLayout(self)
-		lay.setContentsMargins(14, 12, 14, 10)
-		lay.setSpacing(2)
+		lay.setContentsMargins(18, 14, 18, 12)
+		lay.setSpacing(3)
 
 		title = QLabel(label)
-		title.setFont(inter(10, QFont.DemiBold))
+		title.setFont(inter(9, QFont.DemiBold))
 		title.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.3px;background:transparent;border:none;")
 
 		self._value_lbl = QLabel("0")
-		self._value_lbl.setFont(playfair(26, QFont.Medium))
+		self._value_lbl.setFont(inter(24, QFont.DemiBold))
+		self._value_lbl.setMinimumHeight(34)
+		self._value_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 		self._value_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+
+		captions = {
+			"TOTAL TODAY": "Scheduled today",
+			"PENDING": "Awaiting dispatch",
+			"IN TRANSIT": "Currently moving",
+			"DELIVERED": "Completed",
+			"CANCELLED": "Not completed",
+		}
+		caption = QLabel(captions.get(label, "This period"))
+		caption.setFont(inter(10))
+		caption.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
 		lay.addWidget(title)
 		lay.addWidget(self._value_lbl)
+		lay.addWidget(caption)
 		lay.addStretch()
 
 	def set_value(self, value):
@@ -695,7 +710,7 @@ class SummaryCard(QFrame):
 		p.setRenderHint(QPainter.Antialiasing)
 		p.setPen(Qt.NoPen)
 		p.setBrush(self._top_color)
-		p.drawRoundedRect(0, 0, self.width(), 3, 1, 1)
+		p.drawRoundedRect(0, 0, self.width(), 4, 1, 1)
 
 
 class DeliveryFilterProxy(QSortFilterProxyModel):
@@ -1126,14 +1141,14 @@ class NewDeliveryModal(QWidget):
 		self.add_item_btn = QPushButton("+ Add Item")
 		self.add_item_btn.setCursor(Qt.PointingHandCursor)
 		self.add_item_btn.setFont(inter(11, QFont.Medium))
-		self.add_item_btn.setFixedHeight(30)
+		self.add_item_btn.setFixedHeight(32)
 		self.add_item_btn.setStyleSheet(
 			f"""
 			QPushButton {{
-				color:{TEAL};background:transparent;
-				border:1px solid {TEAL};border-radius:6px;padding:0 12px;
+				color:{TEAL_DARK};background:{TEAL_PALE};
+				border:1px solid #b9dcd7;border-radius:8px;padding:0 14px;
 			}}
-			QPushButton:hover {{ background:{TEAL_PALE}; }}
+			QPushButton:hover {{ background:#e0f2ef;border-color:{TEAL}; }}
 			"""
 		)
 		self.add_item_btn.clicked.connect(self._add_row)
@@ -1172,8 +1187,8 @@ class NewDeliveryModal(QWidget):
 			f"""
 			QTextEdit {{
 				color:{GRAY_5};background:{WHITE};
-				border:1px solid {GRAY_2};border-radius:4px;
-				padding:6px 10px;font-family:':{INTER_FAMILY}';
+				border:1px solid #d6e2df;border-radius:8px;
+				padding:8px 10px;font-family:'{INTER_FAMILY}';
 			}}
 			QTextEdit:focus {{ border-color:{TEAL}; }}
 			"""
@@ -1203,14 +1218,14 @@ class NewDeliveryModal(QWidget):
 		cancel_btn = QPushButton("Cancel")
 		cancel_btn.setCursor(Qt.PointingHandCursor)
 		cancel_btn.setFont(inter(12, QFont.Medium))
-		cancel_btn.setFixedHeight(34)
+		cancel_btn.setFixedHeight(38)
 		cancel_btn.setStyleSheet(
 			f"""
 			QPushButton {{
 				color:{GRAY_5};background:{WHITE};
-				border:1px solid {GRAY_3};border-radius:6px;padding:0 18px;
+				border:1px solid #cfdad7;border-radius:8px;padding:0 18px;
 			}}
-			QPushButton:hover {{ border-color:{TEAL};color:{TEAL_DARK}; }}
+			QPushButton:hover {{ background:#f6faf9;border-color:{TEAL};color:{TEAL_DARK}; }}
 			"""
 		)
 		cancel_btn.clicked.connect(self._cancel)
@@ -1218,12 +1233,12 @@ class NewDeliveryModal(QWidget):
 		save_btn = QPushButton("Save Delivery")
 		save_btn.setCursor(Qt.PointingHandCursor)
 		save_btn.setFont(inter(12, QFont.Medium))
-		save_btn.setFixedHeight(34)
+		save_btn.setFixedHeight(38)
 		save_btn.setStyleSheet(
 			f"""
 			QPushButton {{
 				color:{WHITE};background:{TEAL};
-				border:none;border-radius:6px;padding:0 18px;
+				border:none;border-radius:8px;padding:0 20px;
 			}}
 			QPushButton:hover {{ background:{TEAL_DARK}; }}
 			"""
@@ -1441,14 +1456,15 @@ class NewDeliveryModal(QWidget):
 
 		self.error_lbl.hide()
 		if self._callback:
-			self._callback(data)
+			if self._callback(data) is False:
+				return
 		self.hide()
 
 
 class DeliveryStatusModal(QWidget):
 	def __init__(self, parent=None):
 		super().__init__(parent)
-		self.setStyleSheet("background:rgba(0,0,0,100);")
+		self.setStyleSheet("background:rgba(10,18,16,110);")
 		self._callback = None
 		self._delivery_id = None
 		self._drag_active = False
@@ -1457,38 +1473,42 @@ class DeliveryStatusModal(QWidget):
 		self.hide()
 
 		self._card = QFrame(self)
-		self._card.setFixedWidth(420)
+		self._card.setFixedWidth(500)
 		self._card.setObjectName("statusCard")
 		self._card.setStyleSheet(
 			f"""
 			QFrame#statusCard {{
 				background:{WHITE};
-				border:1px solid {GRAY_2};
-				border-radius:8px;
+				border:1px solid #dbe8e5;
+				border-radius:12px;
 			}}
 			"""
 		)
 		shadow = QGraphicsDropShadowEffect(self._card)
-		shadow.setBlurRadius(34)
-		shadow.setOffset(0, 8)
-		shadow.setColor(QColor(0, 0, 0, 60))
+		shadow.setBlurRadius(44)
+		shadow.setOffset(0, 14)
+		shadow.setColor(QColor(0, 0, 0, 70))
 		self._card.setGraphicsEffect(shadow)
 
 		lay = QVBoxLayout(self._card)
-		lay.setContentsMargins(20, 18, 20, 18)
-		lay.setSpacing(10)
+		lay.setContentsMargins(24, 24, 24, 20)
+		lay.setSpacing(14)
 
 		title = QLabel("Update Delivery Status")
-		title.setFont(playfair(16, QFont.DemiBold))
+		title.setFont(playfair(20, QFont.DemiBold))
 		title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
-		self.current_lbl = QLabel("Current: Pending")
-		self.current_lbl.setFont(inter(11))
-		self.current_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+		self.current_lbl = QLabel("Current status: Pending")
+		self.current_lbl.setFont(inter(12, QFont.Medium))
+		self.current_lbl.setFixedHeight(44)
+		self.current_lbl.setStyleSheet(
+			f"color:{TEAL_DARK};background:{TEAL_PALE};"
+			"border:1px solid #cce5e1;border-radius:8px;padding:0 14px;"
+		)
 
 		self.status_combo = QComboBox()
 		self.status_combo.setFont(inter(12))
-		apply_modern_combo(self.status_combo, min_height=34)
+		apply_modern_combo(self.status_combo, min_height=40)
 
 		lay.addWidget(title)
 		lay.addWidget(self.current_lbl)
@@ -1500,28 +1520,28 @@ class DeliveryStatusModal(QWidget):
 
 		cancel_btn = QPushButton("Cancel")
 		cancel_btn.setCursor(Qt.PointingHandCursor)
-		cancel_btn.setFont(inter(11, QFont.Medium))
-		cancel_btn.setFixedHeight(32)
+		cancel_btn.setFont(inter(12, QFont.Medium))
+		cancel_btn.setFixedHeight(38)
 		cancel_btn.setStyleSheet(
 			f"""
 			QPushButton {{
 				color:{GRAY_5};background:{WHITE};
-				border:1px solid {GRAY_2};border-radius:4px;padding:0 16px;
+				border:1px solid #cfdad7;border-radius:8px;padding:0 18px;
 			}}
-			QPushButton:hover {{ background:{GRAY_1}; }}
+			QPushButton:hover {{ background:#f6faf9;border-color:#b9d4cf;color:{TEAL_DARK}; }}
 			"""
 		)
 		cancel_btn.clicked.connect(self.hide)
 
 		save_btn = QPushButton("Save")
 		save_btn.setCursor(Qt.PointingHandCursor)
-		save_btn.setFont(inter(11, QFont.Medium))
-		save_btn.setFixedHeight(32)
+		save_btn.setFont(inter(12, QFont.Medium))
+		save_btn.setFixedHeight(38)
 		save_btn.setStyleSheet(
 			f"""
 			QPushButton {{
 				color:{WHITE};background:{TEAL};
-				border:1px solid {TEAL};border-radius:4px;padding:0 16px;
+				border:1px solid {TEAL};border-radius:8px;padding:0 20px;
 			}}
 			QPushButton:hover {{ background:{TEAL_DARK};border-color:{TEAL_DARK}; }}
 			"""
@@ -1536,12 +1556,14 @@ class DeliveryStatusModal(QWidget):
 		self._delivery_id = delivery["id"]
 		self._callback = callback
 		current = display_status(delivery.get("status", ""))
-		self.current_lbl.setText(f"Current: {current}")
+		self.current_lbl.setText(f"Current status: {current}")
 
 		allowed = {
 			"Pending": ["Pending", "In Transit", "Delivered", "Cancelled"],
 			"In Transit": ["In Transit", "Delivered", "Cancelled"],
-			"Delivered": ["Delivered"],
+			"Delivered": ["Delivered", "Cancelled"]
+				if str(delivery.get("payment_status", "")).strip().lower() != "paid"
+				else ["Delivered"],
 			"Cancelled": ["Cancelled"],
 		}
 		default_options = ["Pending", "In Transit", "Delivered", "Cancelled"]
@@ -1602,7 +1624,8 @@ class DeliveryStatusModal(QWidget):
 
 	def _save(self):
 		if self._callback and self._delivery_id is not None:
-			self._callback(self._delivery_id, self.status_combo.currentText())
+			if self._callback(self._delivery_id, self.status_combo.currentText()) is False:
+				return
 		self.hide()
 
 
@@ -1756,7 +1779,7 @@ class DeliverySavedModal(QWidget):
 class DeliveryDetailsModal(QWidget):
 	def __init__(self, parent=None):
 		super().__init__(parent)
-		self.setStyleSheet("background:rgba(255,255,255,188);")
+		self.setStyleSheet("background:rgba(10,18,16,100);")
 		self._drag_active = False
 		self._drag_offset = None
 		self._header_drag_height = 72
@@ -1771,14 +1794,14 @@ class DeliveryDetailsModal(QWidget):
 			QFrame#detailsCard {{
 				background:{WHITE};
 				border:1px solid #dde7e4;
-				border-radius:12px;
+				border-radius:14px;
 			}}
 			"""
 		)
 		shadow = QGraphicsDropShadowEffect(self._card)
-		shadow.setBlurRadius(24)
-		shadow.setOffset(0, 6)
-		shadow.setColor(QColor(0, 0, 0, 32))
+		shadow.setBlurRadius(42)
+		shadow.setOffset(0, 14)
+		shadow.setColor(QColor(0, 0, 0, 72))
 		self._card.setGraphicsEffect(shadow)
 
 		lay = QVBoxLayout(self._card)
@@ -1791,8 +1814,8 @@ class DeliveryDetailsModal(QWidget):
 			f"""
 			background:{TEAL_DARK};
 			border:none;
-			border-top-left-radius:12px;
-			border-top-right-radius:12px;
+			border-top-left-radius:14px;
+			border-top-right-radius:14px;
 			border-bottom-left-radius:0px;
 			border-bottom-right-radius:0px;
 			"""
@@ -1936,13 +1959,13 @@ class DeliveryDetailsModal(QWidget):
 		v.setSpacing(2)
 
 		lbl = QLabel(label_text)
-		lbl.setFont(inter(10))
-		lbl.setStyleSheet(f"color:#444444;background:transparent;border:none;")
+		lbl.setFont(inter(10, QFont.Medium))
+		lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
 		val = QLabel("-")
 		val.setFont(inter(12, QFont.DemiBold))
 		val.setWordWrap(True)
-		val.setStyleSheet(f"color:#222222;background:transparent;border:none;")
+		val.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
 		v.addWidget(lbl)
 		v.addWidget(val)
@@ -1959,7 +1982,7 @@ class DeliveryDetailsModal(QWidget):
 
 	def _add_item_row(self, item):
 		row = QWidget()
-		row.setStyleSheet("background:#f7f5ef;border:none;border-radius:12px;")
+		row.setStyleSheet("background:#f7fbfa;border:1px solid #dbe9e5;border-radius:10px;")
 		row_lay = QVBoxLayout(row)
 		row_lay.setContentsMargins(16, 14, 16, 14)
 		row_lay.setSpacing(4)
@@ -1970,7 +1993,7 @@ class DeliveryDetailsModal(QWidget):
 
 		product_lbl = QLabel(item["product_name"])
 		product_lbl.setFont(inter(12, QFont.DemiBold))
-		product_lbl.setStyleSheet("color:#222222;background:transparent;border:none;")
+		product_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
 		amount_lbl = QLabel(f"Php {item['subtotal']:,.2f}")
 		amount_lbl.setFont(inter(12, QFont.DemiBold))
@@ -1982,8 +2005,8 @@ class DeliveryDetailsModal(QWidget):
 		row_lay.addLayout(top)
 
 		bottom = QLabel(f"Qty: {item['quantity']}   Type: {item['type']}")
-		bottom.setFont(inter(10))
-		bottom.setStyleSheet("color:#4f4f4f;background:transparent;border:none;")
+		bottom.setFont(inter(10, QFont.Medium))
+		bottom.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 		row_lay.addWidget(bottom)
 
 		self.items_lay.addWidget(row)
@@ -2015,7 +2038,13 @@ class DeliveryDetailsModal(QWidget):
 		self._notes_lbl.setText(delivery.get("notes") or "-")
 
 		self._clear_items_list()
-		for item in delivery["items"]:
+		items = delivery.get("items") or []
+		if not items:
+			empty_item = QLabel("No items recorded for this delivery.")
+			empty_item.setFont(inter(11))
+			empty_item.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+			self.items_lay.addWidget(empty_item)
+		for item in items:
 			self._add_item_row(item)
 		self.items_holder.adjustSize()
 		items_height = self.items_holder.sizeHint().height()
@@ -2100,9 +2129,9 @@ class DeliveryStatusDelegate(QStyledItemDelegate):
 		if option.state & QStyle.State_Selected:
 			painter.fillRect(option.rect, QColor(TEAL_PALE))
 		else:
-			painter.fillRect(option.rect, QColor(WHITE))
+			painter.fillRect(option.rect, QColor("#fbfdfc"))
 
-		painter.setPen(QColor(GRAY_2))
+		painter.setPen(QColor("#edf2f0"))
 		painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
 
 		raw = index.data(Qt.DisplayRole) or ""
@@ -2112,7 +2141,7 @@ class DeliveryStatusDelegate(QStyledItemDelegate):
 
 		fm = QFontMetrics(inter(11, QFont.Medium))
 		pill_w = fm.horizontalAdvance(label) + 22
-		pill_h = 22
+		pill_h = 26
 		cx = option.rect.center().x()
 		cy = option.rect.center().y()
 		pill_rect = QRect(
@@ -2125,7 +2154,8 @@ class DeliveryStatusDelegate(QStyledItemDelegate):
 		painter.setRenderHint(QPainter.Antialiasing)
 		painter.setBrush(QColor(bg))
 		painter.setPen(Qt.NoPen)
-		painter.drawRoundedRect(pill_rect, 11, 11)
+		painter.setPen(QPen(QColor(fg), 1))
+		painter.drawRoundedRect(pill_rect, 13, 13)
 
 		painter.setFont(inter(11, QFont.Medium))
 		painter.setPen(QColor(fg))
@@ -2134,7 +2164,7 @@ class DeliveryStatusDelegate(QStyledItemDelegate):
 		painter.restore()
 
 	def sizeHint(self, option, index):
-		return QSize(110, 58)
+		return QSize(118, 64)
 
 # --- Ghost Update Button ---
 class DeliveryActionDelegate(QStyledItemDelegate):
@@ -2176,26 +2206,26 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 		if option.state & QStyle.State_Selected:
 			painter.fillRect(option.rect, QColor(TEAL_PALE))
 		else:
-			painter.fillRect(option.rect, QColor(WHITE))
+			painter.fillRect(option.rect, QColor("#fbfdfc"))
 
 		# bottom border
-		painter.setPen(QColor(GRAY_2))
+		painter.setPen(QColor("#edf2f0"))
 		painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
 
 		# button rect
-		btn_rect = option.rect.adjusted(10, 14, -10, -14)
+		btn_rect = option.rect.adjusted(12, 17, -12, -17)
 		is_hovered = (index.row() == self._hovered_row)
 
 		painter.setRenderHint(QPainter.Antialiasing)
 
-		# ghost button — border changes to teal on hover
-		border_color = QColor(TEAL) if is_hovered else QColor(GRAY_3)
-		text_color   = QColor(TEAL_DARK) if is_hovered else QColor(GRAY_5)
-		bg_color     = QColor(TEAL_PALE) if is_hovered else QColor(WHITE)
+		# ghost button - border changes to teal on hover
+		border_color = QColor(TEAL) if is_hovered else QColor("#b9dcd7")
+		text_color = QColor(WHITE) if is_hovered else QColor(TEAL_DARK)
+		bg_color = QColor(TEAL) if is_hovered else QColor("#eef8f6")
 
 		painter.setBrush(bg_color)
 		painter.setPen(QPen(border_color, 1))
-		painter.drawRoundedRect(btn_rect, 6, 6)
+		painter.drawRoundedRect(btn_rect, 13, 13)
 
 		# label
 		text_rect = QRect(
@@ -2204,19 +2234,19 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 			btn_rect.width(),
 			btn_rect.height()
 		)
-		painter.setFont(inter(11, QFont.Medium))
+		painter.setFont(inter(10, QFont.Medium))
 		painter.setPen(text_color)
 		painter.drawText(text_rect, Qt.AlignCenter, "Update")
 
 		painter.restore()
 
 	def sizeHint(self, option, index):
-		return QSize(120, 58)
+		return QSize(124, 64)
 
 	def editorEvent(self, event, model, option, index):
 		from PySide6.QtCore import QEvent
 		if event.type() == QEvent.MouseButtonRelease:
-			btn_rect = option.rect.adjusted(10, 14, -10, -14)
+			btn_rect = option.rect.adjusted(12, 17, -12, -17)
 			if btn_rect.contains(event.position().toPoint()):
 				self._page.open_status(index.row())
 				return True
@@ -2228,7 +2258,6 @@ class DeliveryView(QWidget):
 		super().__init__(parent)
 		self._show_topbar = show_topbar
 		self._topbar_controls_only = topbar_controls_only
-		self._next_delivery_id = 100
 		self._controller = controller
 
 		load_fonts()
@@ -2275,15 +2304,16 @@ class DeliveryView(QWidget):
 
 		content = QWidget()
 		content.setStyleSheet("background:transparent;")
+		content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 		c_lay = QVBoxLayout(content)
 		c_lay.setContentsMargins(28, 24, 28, 28)
-		c_lay.setSpacing(0)
+		c_lay.setSpacing(14)
 
 		title_row = QHBoxLayout()
 		title_row.setSpacing(0)
 
 		left = QVBoxLayout()
-		left.setSpacing(0)
+		left.setSpacing(2)
 
 		sub = QLabel("DELIVERY OPERATIONS")
 		sub.setFont(inter(10, QFont.DemiBold))
@@ -2301,20 +2331,16 @@ class DeliveryView(QWidget):
 		left.addWidget(title)
 		left.addWidget(page_sub)
 
-		rule = QFrame()
-		rule.setFrameShape(QFrame.HLine)
-		rule.setStyleSheet(f"color:{GRAY_2};background:{GRAY_2};border:none;margin-bottom:6px;margin-left:24px;")
-
 		self._new_btn = QPushButton("+ New Delivery")
 		self._new_btn.setCursor(Qt.PointingHandCursor)
 		self._new_btn.setFont(inter(12, QFont.Medium))
-		self._new_btn.setFixedHeight(36)
+		self._new_btn.setFixedHeight(38)
 		self._new_btn.setMinimumWidth(180)
 		self._new_btn.setStyleSheet(
 			f"""
 			QPushButton {{
 				color:{WHITE};background:{TEAL};
-				border:1px solid {TEAL};border-radius:4px;padding:0 18px;
+				border:1px solid {TEAL};border-radius:8px;padding:0 18px;
 			}}
 			QPushButton:hover {{ background:{TEAL_DARK};border-color:{TEAL_DARK}; }}
 			"""
@@ -2322,14 +2348,13 @@ class DeliveryView(QWidget):
 		self._new_btn.clicked.connect(self._open_new_delivery)
 
 		title_row.addLayout(left)
-		title_row.addWidget(rule, 1, Qt.AlignBottom)
-		title_row.addSpacing(10)
+		title_row.addStretch()
 		title_row.addWidget(self._new_btn, 0, Qt.AlignRight | Qt.AlignTop)
 		c_lay.addLayout(title_row)
-		c_lay.addSpacing(20)
 
 		stat_row = QHBoxLayout()
-		stat_row.setSpacing(10)
+		stat_row.setContentsMargins(0, 2, 0, 0)
+		stat_row.setSpacing(12)
 		self._card_total_today = SummaryCard("TOTAL TODAY", TEAL)
 		self._card_pending = SummaryCard("PENDING", TEAL_MID)
 		self._card_in_transit = SummaryCard("IN TRANSIT", TEAL_LIGHT)
@@ -2344,7 +2369,6 @@ class DeliveryView(QWidget):
 		]:
 			stat_row.addWidget(card)
 		c_lay.addLayout(stat_row)
-		c_lay.addSpacing(16)
 
 		filter_card = QFrame()
 		filter_card.setStyleSheet("QFrame{background:transparent;border:none;}")
@@ -2476,27 +2500,49 @@ class DeliveryView(QWidget):
 		filter_lay.addWidget(self._customer_filter, 1)
 		filter_lay.addWidget(clear_btn)
 		c_lay.addWidget(filter_card)
-		c_lay.addSpacing(14)
 
 		table_card = QFrame()
-		table_card.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
+		table_card.setObjectName("DeliveryTableCard")
+		table_card.setMinimumHeight(540)
+		table_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+		table_card.setStyleSheet(
+			f"""
+			QFrame#DeliveryTableCard {{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:8px;
+			}}
+			"""
+		)
 		t_lay = QVBoxLayout(table_card)
 		t_lay.setContentsMargins(0, 0, 0, 0)
 		t_lay.setSpacing(0)
 
 		bar = QWidget()
-		bar.setFixedHeight(52)
-		bar.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+		bar.setFixedHeight(56)
+		bar.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
 		bar_lay = QHBoxLayout(bar)
 		bar_lay.setContentsMargins(18, 0, 18, 0)
 
-		table_title = QLabel("All Deliveries")
+		table_title = QLabel("Delivery Schedule")
 		table_title.setFont(playfair(14, QFont.Medium))
 		table_title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
 		self._count_lbl = QLabel("0 records")
-		self._count_lbl.setFont(inter(11))
-		self._count_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+		self._count_lbl.setFont(inter(10, QFont.Medium))
+		self._count_lbl.setAlignment(Qt.AlignCenter)
+		self._count_lbl.setFixedHeight(28)
+		self._count_lbl.setStyleSheet(
+			f"""
+			QLabel {{
+				color:{TEAL_DARK};
+				background:{TEAL_PALE};
+				border:1px solid #cce5e1;
+				border-radius:14px;
+				padding:0 12px;
+			}}
+			"""
+		)
 
 		bar_lay.addWidget(table_title)
 		bar_lay.addStretch()
@@ -2518,7 +2564,7 @@ class DeliveryView(QWidget):
 		self._table.setFocusPolicy(Qt.NoFocus)
 		self._table.setShowGrid(False)
 		self._table.verticalHeader().setVisible(False)
-		self._table.verticalHeader().setDefaultSectionSize(58)
+		self._table.verticalHeader().setDefaultSectionSize(64)
 		self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 		self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
 		self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
@@ -2531,16 +2577,37 @@ class DeliveryView(QWidget):
 			f"""
 			QTableView {{
 				background:transparent;border:none;
-				font-family:'{INTER_FAMILY}';font-size:12px;color:{GRAY_5};outline:none;
+				font-family:'{INTER_FAMILY}';font-size:13px;color:{GRAY_5};outline:none;
 				selection-background-color:{TEAL_PALE};
 			}}
-			QTableView::item {{ padding:10px 12px;border-bottom:0.5px solid {GRAY_2}; }}
+			QTableView::item {{ padding:12px 14px;border-bottom:1px solid #edf2f0; }}
 			QTableView::item:selected {{ background:{TEAL_PALE};color:{TEAL_DARK}; }}
 			QHeaderView::section {{
-				background:{WHITE};color:{GRAY_5};
-				font-size:12px;font-weight:600;letter-spacing:0.3px;
-				padding:10px 12px 8px;border:none;border-bottom:1px solid {GRAY_2};
+				background:#f4f8f7;color:{GRAY_5};
+				font-size:11px;font-weight:600;letter-spacing:0.8px;
+				padding:13px 14px 12px;border:none;border-bottom:1px solid {GRAY_2};
 				font-family:'{INTER_FAMILY}';
+			}}
+			QScrollBar:vertical {{
+				background:transparent;
+				width:10px;
+				margin:8px 4px 8px 0;
+			}}
+			QScrollBar::handle:vertical {{
+				background:rgba(26,122,110,0.28);
+				min-height:28px;
+				border-radius:5px;
+			}}
+			QScrollBar::handle:vertical:hover {{
+				background:rgba(26,122,110,0.42);
+			}}
+			QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+				height:0;
+				background:transparent;
+				border:none;
+			}}
+			QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+				background:transparent;
 			}}
 			"""
 		)
@@ -2590,7 +2657,7 @@ class DeliveryView(QWidget):
 		self._table_stack.addWidget(self._table)
 		self._table_stack.addWidget(self._empty)
 		t_lay.addWidget(self._table_stack)
-		c_lay.addWidget(table_card)
+		c_lay.addWidget(table_card, 1)
 
 		scroll.setWidget(content)
 		root.addWidget(scroll)
@@ -2743,26 +2810,6 @@ class DeliveryView(QWidget):
 		for row in res or []:
 			qdate = self._to_qdate(row.get("schedule_date"))
 			status = display_status(row.get("status", ""))
-			# Fetch items for preview/total
-			items_ok, items_res = self._controller.get_items(row.get("id"))
-			items_list = items_res if (items_ok and items_res) else []
-			item_rows = []
-			total_amt = 0.0
-			for it in items_list:
-				item_rows.append(
-					{
-						"product_id": it.get("product_id"),
-						"product_name": it.get("product_name", ""),
-						"quantity": it.get("quantity", 0),
-						"type": display_item_type(it.get("type", "")),
-						"unit_price": float(it.get("unit_price", 0) or 0),
-						"subtotal": float(it.get("subtotal", 0) or 0),
-					}
-				)
-				try:
-					total_amt += float(it.get("subtotal", 0) or 0)
-				except Exception:
-					pass
 
 			record = {
 				"id": row.get("id"),
@@ -2770,12 +2817,53 @@ class DeliveryView(QWidget):
 				"customer_name": row.get("customer_name", ""),
 				"contact": row.get("contact", ""),
 				"schedule_date": qdate,
-				"items": item_rows,
+				"items": [],
+				"items_loaded": False,
+				"item_summary": row.get("item_summary", "") or "",
+				"item_count": int(row.get("item_count", 0) or 0),
 				"notes": row.get("notes", ""),
 				"status": status,
-				"total_amount": float(row.get("total_amount", total_amt) or total_amt or 0),
+				"payment_status": row.get("payment_status", "unpaid"),
+				"total_amount": float(row.get("total_amount", 0) or 0),
 			}
 			self._deliveries.append(record)
+
+	def _load_items_for_delivery(self, delivery):
+		if not delivery or delivery.get("items_loaded"):
+			return True
+		if not self._controller:
+			return True
+
+		ok, items_res = self._controller.get_items(delivery.get("id"))
+		if not ok:
+			QMessageBox.warning(self, "Load Failed", str(items_res))
+			return False
+
+		item_rows = []
+		total_amt = 0.0
+		for it in items_res or []:
+			try:
+				subtotal = float(it.get("subtotal", 0) or 0)
+			except Exception:
+				subtotal = 0.0
+			item_rows.append(
+				{
+					"product_id": it.get("product_id"),
+					"product_name": it.get("product_name", ""),
+					"quantity": it.get("quantity", 0),
+					"type": display_item_type(it.get("type", "")),
+					"unit_price": float(it.get("unit_price", 0) or 0),
+					"subtotal": subtotal,
+				}
+			)
+			total_amt += subtotal
+
+		delivery["items"] = item_rows
+		delivery["items_loaded"] = True
+		delivery["item_count"] = len(item_rows)
+		if item_rows:
+			delivery["total_amount"] = total_amt
+		return True
 
 	def _init_modals(self):
 		self._new_modal = NewDeliveryModal(self._customers, self._products, self)
@@ -2808,31 +2896,16 @@ class DeliveryView(QWidget):
 			)
 		return item_rows, total
 
-	def _add_delivery_record(self, payload):
-		customer = self._find_customer(payload["customer_id"])
-		item_rows, total = self._build_items_with_prices(payload["items"])
-
-		record = {
-			"id": self._next_delivery_id,
-			"customer_id": customer["id"],
-			"customer_name": customer["name"],
-			"contact": customer["contact"],
-			"schedule_date": payload["schedule_date"],
-			"items": item_rows,
-			"notes": payload.get("notes", ""),
-			"status": payload.get("status", "Pending"),
-			"total_amount": total,
-		}
-		self._next_delivery_id += 1
-		self._deliveries.append(record)
-
 	def _refresh_table(self):
 		self._model.setRowCount(0)
 		sorted_rows = sorted(self._deliveries, key=lambda r: r["schedule_date"].toJulianDay(), reverse=True)
 		for row in sorted_rows:
-			items_preview = ", ".join(
-				[f"{i['product_name']} x{i['quantity']} ({i['type']})" for i in row["items"]]
-			)
+			if row.get("items"):
+				items_preview = ", ".join(
+					[f"{i['product_name']} x{i['quantity']} ({i['type']})" for i in row["items"]]
+				)
+			else:
+				items_preview = row.get("item_summary") or "No items recorded"
 			if len(items_preview) > 86:
 				items_preview = items_preview[:83] + "..."
 
@@ -2854,13 +2927,22 @@ class DeliveryView(QWidget):
 			cells[1].setData(row["schedule_date"], Qt.UserRole + 2)
 
 			for idx, c in enumerate(cells):
-				c.setFont(inter(11))
+				c.setFont(inter(12, QFont.DemiBold if idx in (0, 3) else QFont.Normal))
+				c.setBackground(QColor("#fbfdfc"))
 				if idx == 4:
 					c.setForeground(QColor(self._status_fg(row["status"])))
 				elif idx == 0:
 					c.setForeground(QColor(TEAL_DARK))
+				elif idx == 3:
+					c.setForeground(QColor(TEAL_DARK))
+					c.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+				elif idx in (1, 5):
+					c.setForeground(QColor(GRAY_5))
+					c.setTextAlignment(Qt.AlignCenter)
 				else:
 					c.setForeground(QColor(GRAY_5))
+				if idx == 4:
+					c.setTextAlignment(Qt.AlignCenter)
 
 			self._model.appendRow(cells)
 
@@ -2914,6 +2996,10 @@ class DeliveryView(QWidget):
 		self._new_modal.open(self._save_new_delivery)
 
 	def _save_new_delivery(self, payload):
+		if not self._controller:
+			QMessageBox.warning(self, "Save Failed", "Delivery controller is not connected.")
+			return False
+
 		# Prepare data for the controller/model
 		items_with_prices, _ = self._build_items_with_prices(payload["items"])
 		schedule_date = self._qdate_to_pydate(payload["schedule_date"])
@@ -2932,7 +3018,7 @@ class DeliveryView(QWidget):
 
 		if not ok:
 			QMessageBox.warning(self, "Save Failed", str(res))
-			return
+			return False
 
 		# Reload data from DB to keep UI in sync with persisted records
 		self._load_from_controller()
@@ -2941,6 +3027,7 @@ class DeliveryView(QWidget):
 		customer = self._find_customer(customer_id)
 		customer_name = customer["name"] if customer else ""
 		self._saved_modal.open(customer_name, payload["schedule_date"])
+		return True
 
 	def _delivery_from_proxy_row(self, proxy_row):
 		idx = self._proxy.index(proxy_row, 0)
@@ -2957,6 +3044,8 @@ class DeliveryView(QWidget):
 		delivery = self._delivery_from_proxy_row(proxy_row)
 		if delivery is None:
 			return
+		if not self._load_items_for_delivery(delivery):
+			return
 		self._details_modal.open(delivery)
 
 	def open_status(self, proxy_row):
@@ -2966,24 +3055,23 @@ class DeliveryView(QWidget):
 		self._status_modal.open(delivery, self._save_status)
 
 	def _save_status(self, delivery_id, new_status):
+		if not self._controller:
+			QMessageBox.warning(self, "Update Failed", "Delivery controller is not connected.")
+			return False
+
 		user = LoginController.get_current_user()
 		user_id = user.get("id") if user else 0
 
-		if self._controller:
-			ok, err = self._controller.update_status(delivery_id, db_status(new_status), user_id)
-			if not ok:
-				QMessageBox.warning(self, "Update Failed", str(err))
-				return
-			# Reload fresh data from DB to ensure totals/items reflect changes and triggers.
-			self._load_from_controller()
-		else:
-			for d in self._deliveries:
-				if d["id"] == delivery_id:
-					d["status"] = new_status
-					break
+		ok, err = self._controller.update_status(delivery_id, db_status(new_status), user_id)
+		if not ok:
+			QMessageBox.warning(self, "Update Failed", str(err))
+			return False
+		# Reload fresh data from DB to ensure totals/items reflect changes and triggers.
+		self._load_from_controller()
 
 		self._refresh_table()
 		self._refresh_summary_cards()
+		return True
 
 
 class DeliveryDashboardWindow(QMainWindow):
