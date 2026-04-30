@@ -13,9 +13,10 @@ class TransactionModel:
             base_query = """
                 SELECT
                     vt.transaction_id,
-                    t.delivery_id,
+                    vt.delivery_id,
                     vt.customer_name,
                     vt.customer_contact                                     AS customer_contact,
+                    TRIM(c.address)                                         AS customer_address,
                     vt.schedule_date                                        AS delivery_date,
                     DATE_FORMAT(vt.schedule_date, '%b %d, %Y')             AS delivery_date_fmt,
                     vt.total_amount,
@@ -25,7 +26,13 @@ class TransactionModel:
                     DATE_FORMAT(vt.paid_at, '%b %d, %Y')                   AS paid_at_fmt,
                     DATE_FORMAT(vt.created_at, '%b %d, %Y %h:%i %p')       AS created_at_fmt,
                     vt.delivery_status,
-                    COALESCE(
+                    COALESCE(pi.product_summary, '-')                       AS product_summary
+                FROM vw_transaction_summary vt
+                LEFT JOIN deliveries d ON d.id = vt.delivery_id
+                LEFT JOIN customers c ON c.id = d.customer_id
+                LEFT JOIN (
+                    SELECT
+                        di.delivery_id,
                         GROUP_CONCAT(
                             CONCAT(
                                 TRIM(p.name),
@@ -40,13 +47,11 @@ class TransactionModel:
                             )
                             ORDER BY p.name ASC
                             SEPARATOR ', '
-                        ),
-                        '-'
-                    )                                                       AS product_summary
-                FROM vw_transaction_summary vt
-                LEFT JOIN transactions t  ON t.id = vt.transaction_id
-                LEFT  JOIN delivery_items di ON di.delivery_id = t.delivery_id
-                LEFT  JOIN lpg_products p    ON p.id           = di.product_id
+                        )                                                   AS product_summary
+                    FROM delivery_items di
+                    INNER JOIN lpg_products p ON p.id = di.product_id
+                    GROUP BY di.delivery_id
+                ) pi ON pi.delivery_id = vt.delivery_id
             """
 
             if date_from and date_to:
@@ -54,20 +59,12 @@ class TransactionModel:
                 WHERE vt.schedule_date BETWEEN %s AND %s
                 """
                 base_query += """
-                GROUP BY
-                    vt.transaction_id, t.delivery_id, vt.customer_name, vt.customer_contact,
-                    vt.schedule_date, vt.total_amount, vt.payment_status,
-                    vt.paid_at, vt.created_at, vt.delivery_status
-                ORDER BY vt.schedule_date DESC, vt.created_at DESC
+                ORDER BY vt.schedule_date DESC, vt.created_at DESC, vt.transaction_id DESC
                 """
                 cursor.execute(base_query, (date_from, date_to))
             else:
                 base_query += """
-                GROUP BY
-                    vt.transaction_id, t.delivery_id, vt.customer_name, vt.customer_contact,
-                    vt.schedule_date, vt.total_amount, vt.payment_status,
-                    vt.paid_at, vt.created_at, vt.delivery_status
-                ORDER BY vt.schedule_date DESC, vt.created_at DESC
+                ORDER BY vt.schedule_date DESC, vt.created_at DESC, vt.transaction_id DESC
                 """
                 cursor.execute(base_query)
 

@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
+    QGridLayout,
     QLabel,
     QFrame,
     QScrollArea,
@@ -31,6 +32,7 @@ from PySide6.QtWidgets import (
     QFileDialog,
     QMessageBox,
     QDialog,
+    QComboBox,
 )
 
 from reportlab.lib import colors
@@ -461,83 +463,24 @@ class ExportNoticeDialog(QDialog):
         lay.addLayout(btn_row)
 
 
-class ReportKpiCard(QFrame):
-    """KPI card for report statistics"""
-    def __init__(self, label, value, desc, top_color, parent=None):
-        super().__init__(parent)
-        self._top_color = top_color
-        self.setStyleSheet(
-            f"""
-            QFrame {{
-                background: {WHITE};
-                border: 1px solid {GRAY_2};
-                border-radius: 6px;
-            }}
-        """
-        )
-        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        self.setFixedHeight(120)
-
-        root_lay = QVBoxLayout(self)
-        root_lay.setContentsMargins(0, 0, 0, 0)
-        root_lay.setSpacing(0)
-
-        top_border = QFrame()
-        top_border.setFixedHeight(3)
-        top_border.setStyleSheet(
-            f"background:{self._top_color};border:none;border-top-left-radius:6px;border-top-right-radius:6px;"
-        )
-        root_lay.addWidget(top_border)
-
-        body = QWidget()
-        body.setStyleSheet("background:transparent;border:none;")
-        lay = QVBoxLayout(body)
-        lay.setContentsMargins(16, 12, 16, 10)
-        lay.setSpacing(4)
-
-        lbl = QLabel(label)
-        lbl.setFont(inter(9, QFont.DemiBold))
-        lbl.setMinimumHeight(14)
-        lbl.setStyleSheet(
-            f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;"
-        )
-
-        val = QLabel(value)
-        val.setFont(playfair(28, QFont.Medium))
-        val.setMinimumHeight(32)
-        val.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        val.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-        self._value_lbl = val
-
-        dsc = QLabel(desc)
-        dsc.setFont(inter(10))
-        dsc.setMinimumHeight(16)
-        dsc.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-
-        lay.addWidget(lbl)
-        lay.addWidget(val)
-        lay.addWidget(dsc)
-        lay.addStretch()
-        root_lay.addWidget(body)
-
-    def set_value(self, value_text):
-        self._value_lbl.setText(value_text)
-
-
 class StatusBadge(QLabel):
     """Status badge widget for delivery status"""
     def __init__(self, status, parent=None):
         super().__init__(parent)
         self.setText(status)
         self.setAlignment(Qt.AlignCenter)
-        self.setFont(inter(9, QFont.Medium))
-        self.setFixedHeight(24)
-        self.setFixedWidth(80)
+        self.setFont(inter(10,QFont.Medium))
+        self.setFixedHeight(26)
+        self.setFixedWidth(94)
 
         status_lower = status.lower()
         if status_lower == "delivered":
             self.setStyleSheet(
                 f"background:{GREEN_BG};color:{GREEN};border:1px solid {GREEN};border-radius:4px;"
+            )
+        elif status_lower == "in transit":
+            self.setStyleSheet(
+                f"background:{TEAL_PALE};color:{TEAL_DARK};border:1px solid {TEAL};border-radius:4px;"
             )
         elif status_lower == "pending":
             self.setStyleSheet(
@@ -546,6 +489,32 @@ class StatusBadge(QLabel):
         elif status_lower == "cancelled":
             self.setStyleSheet(
                 f"background:{RED_BG};color:{RED};border:1px solid {RED};border-radius:4px;"
+            )
+        else:
+            self.setStyleSheet(
+                f"background:{GRAY_2};color:{GRAY_4};border:1px solid {GRAY_3};border-radius:4px;"
+            )
+
+
+class PaymentBadge(QLabel):
+    """Payment status badge for report rows."""
+    def __init__(self, status, parent=None):
+        super().__init__(parent)
+        status = status or "Not Applicable"
+        self.setText(status)
+        self.setAlignment(Qt.AlignCenter)
+        self.setFont(inter(11, QFont.Medium))
+        self.setFixedHeight(26)
+        self.setFixedWidth(156)
+
+        status_lower = status.lower()
+        if status_lower == "paid":
+            self.setStyleSheet(
+                f"background:{GREEN_BG};color:{GREEN};border:1px solid {GREEN};border-radius:4px;"
+            )
+        elif status_lower == "unpaid":
+            self.setStyleSheet(
+                f"background:{AMBER_BG};color:{AMBER};border:1px solid {AMBER};border-radius:4px;"
             )
         else:
             self.setStyleSheet(
@@ -573,6 +542,12 @@ class ReportTabPanel(QFrame):
             "total_sales": 0.0,
             "total_paid": 0.0,
             "total_unpaid": 0.0,
+            "avg_transaction_value": 0.0,
+            "peak_sales_day": "",
+            "peak_sales_amount": 0.0,
+            "most_sold_product": "",
+            "most_sold_product_quantity": 0,
+            "most_sold_product_revenue": 0.0,
         }
         self._base_data = []
         self._filtered_data = []
@@ -584,47 +559,19 @@ class ReportTabPanel(QFrame):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(16)
 
-        # KPI Cards Row
-        kpi_row = QHBoxLayout()
-        kpi_row.setSpacing(16)
-        kpi_row.setContentsMargins(0, 0, 0, 0)
-
-        self.kpi_total = ReportKpiCard(
-            "TOTAL DELIVERIES",
-            "0",
-            "This period",
-            TEAL,
-        )
-        self.kpi_delivered = ReportKpiCard(
-            "DELIVERED",
-            "0",
-            "Completed",
-            GREEN,
-        )
-        self.kpi_pending = ReportKpiCard(
-            "PENDING",
-            "0",
-            "In progress",
-            AMBER,
-        )
-        self.kpi_cancelled = ReportKpiCard(
-            "CANCELLED",
-            "0",
-            "Not completed",
-            RED,
-        )
-
-        kpi_row.addWidget(self.kpi_total)
-        kpi_row.addWidget(self.kpi_delivered)
-        kpi_row.addWidget(self.kpi_pending)
-        kpi_row.addWidget(self.kpi_cancelled)
-
-        # Total Sales Card
+        # Summary blocks
         sales_frame = QFrame()
         sales_frame.setStyleSheet(
-            f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:8px;}}"
+            f"""
+            QFrame{{
+                background:{WHITE};
+                border:1px solid {GRAY_2};
+                border-radius:10px;
+            }}
+            """
         )
-        sales_frame.setFixedHeight(128)
+        sales_frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        sales_frame.setFixedHeight(224)
 
         sales_root = QVBoxLayout(sales_frame)
         sales_root.setContentsMargins(0, 0, 0, 0)
@@ -633,44 +580,100 @@ class ReportTabPanel(QFrame):
         sales_top = QFrame()
         sales_top.setFixedHeight(4)
         sales_top.setStyleSheet(
-            f"background:{TEAL};border:none;border-top-left-radius:8px;border-top-right-radius:8px;"
+            f"background:{TEAL};border:none;border-top-left-radius:10px;border-top-right-radius:10px;"
         )
         sales_root.addWidget(sales_top)
 
         sales_body = QWidget()
         sales_body.setStyleSheet("background:transparent;border:none;")
         sales_lay = QVBoxLayout(sales_body)
-        sales_lay.setContentsMargins(18, 12, 18, 12)
-        sales_lay.setSpacing(2)
+        sales_lay.setContentsMargins(24, 17, 24, 18)
+        sales_lay.setSpacing(7)
 
         sales_title_text, sales_desc_text = self._get_sales_texts()
 
         sales_lbl = QLabel(sales_title_text)
-        sales_lbl.setFont(inter(10, QFont.DemiBold))
+        sales_lbl.setFont(inter(11, QFont.DemiBold))
         sales_lbl.setStyleSheet(
             f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;"
         )
         self._sales_title_lbl = sales_lbl
         total_sales = 0
 
-        sales_val = QLabel(f"₱ {total_sales:,.2f}")
-        sales_val.setFont(playfair(30, QFont.Medium))
+        sales_val = QLabel(f"PHP {total_sales:,.2f}")
+        sales_val.setFont(playfair(38, QFont.Medium))
+        sales_val.setMinimumHeight(48)
         sales_val.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
         self._sales_val_lbl = sales_val
 
         sales_desc = QLabel(sales_desc_text)
-        sales_desc.setFont(inter(10))
+        sales_desc.setFont(inter(11))
         sales_desc.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
         self._sales_desc_lbl = sales_desc
 
         sales_lay.addWidget(sales_lbl)
         sales_lay.addWidget(sales_val)
         sales_lay.addWidget(sales_desc)
+        money_row = QHBoxLayout()
+        money_row.setContentsMargins(0, 10, 0, 0)
+        money_row.setSpacing(26)
+        collected_item, self._paid_value_lbl = self._summary_value("Collected", "PHP 0.00", GREEN)
+        receivable_item, self._unpaid_value_lbl = self._summary_value("Receivables", "PHP 0.00", AMBER)
+        money_row.addWidget(collected_item, 1)
+        money_row.addWidget(receivable_item, 1)
+        sales_lay.addLayout(money_row)
         sales_lay.addStretch()
         sales_root.addWidget(sales_body)
+        delivery_frame, delivery_lay = self._summary_panel("DELIVERY SUMMARY", TEAL_MID, height=224)
+        delivery_lay.setSpacing(5)
+        self._delivery_total_lbl = QLabel("0")
+        self._delivery_total_lbl.setFont(inter(28, QFont.DemiBold))
+        self._delivery_total_lbl.setFixedHeight(44)
+        self._delivery_total_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self._delivery_total_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+        delivery_lay.addWidget(self._delivery_total_lbl)
+        total_hint = QLabel("Total deliveries in this report")
+        total_hint.setFont(inter(10))
+        total_hint.setFixedHeight(16)
+        total_hint.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        total_hint.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        delivery_lay.addWidget(total_hint)
 
-        lay.addWidget(sales_frame)
-        lay.addLayout(kpi_row)
+        delivery_grid = QGridLayout()
+        delivery_grid.setContentsMargins(0, 8, 0, 0)
+        delivery_grid.setHorizontalSpacing(18)
+        delivery_grid.setVerticalSpacing(6)
+        delivered_item, self._delivered_value_lbl = self._summary_value("Delivered", "0", GREEN)
+        pending_item, self._pending_value_lbl = self._summary_value("Pending", "0", AMBER)
+        transit_item, self._in_transit_value_lbl = self._summary_value("In transit", "0", TEAL_MID)
+        cancelled_item, self._cancelled_value_lbl = self._summary_value("Cancelled", "0", RED)
+        delivery_grid.addWidget(delivered_item, 0, 0)
+        delivery_grid.addWidget(pending_item, 0, 1)
+        delivery_grid.addWidget(transit_item, 1, 0)
+        delivery_grid.addWidget(cancelled_item, 1, 1)
+        delivery_lay.addLayout(delivery_grid)
+        delivery_lay.addStretch()
+
+        insights_frame, insights_lay = self._summary_panel("REPORT INSIGHTS", AMBER, height=224)
+        peak_item, self._peak_day_value_lbl, self._peak_day_detail_lbl = self._insight_row("Peak sales day")
+        product_item, self._most_product_value_lbl, self._most_product_detail_lbl = self._insight_row("Most sold product")
+        avg_item, self._avg_order_value_lbl, self._avg_order_detail_lbl = self._insight_row("Average order value")
+        insights_lay.addWidget(peak_item)
+        insights_lay.addWidget(product_item)
+        insights_lay.addWidget(avg_item)
+        insights_lay.addStretch()
+
+        summary_grid = QGridLayout()
+        summary_grid.setContentsMargins(0, 0, 0, 0)
+        summary_grid.setHorizontalSpacing(16)
+        summary_grid.setVerticalSpacing(16)
+        summary_grid.addWidget(sales_frame, 0, 0)
+        summary_grid.addWidget(delivery_frame, 0, 1)
+        summary_grid.addWidget(insights_frame, 0, 2)
+        summary_grid.setColumnStretch(0, 2)
+        summary_grid.setColumnStretch(1, 1)
+        summary_grid.setColumnStretch(2, 1)
+        lay.addLayout(summary_grid)
 
         # Table Section Header
         table_header = QHBoxLayout()
@@ -682,6 +685,31 @@ class ReportTabPanel(QFrame):
         table_title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
         table_header.addWidget(table_title)
         table_header.addStretch()
+
+        self._status_filter = self._build_filter_combo(
+            [
+                ("All Statuses", "All"),
+                ("Delivered", "Delivered"),
+                ("Pending", "Pending"),
+                ("In Transit", "In Transit"),
+                ("Cancelled", "Cancelled"),
+            ],
+            132,
+        )
+        self._status_filter.currentIndexChanged.connect(self._apply_local_filters)
+        table_header.addWidget(self._status_filter)
+
+        self._payment_filter = self._build_filter_combo(
+            [
+                ("All Payments", "All"),
+                ("Paid", "Paid"),
+                ("Unpaid", "Unpaid"),
+                ("Not Applicable", "Not Applicable"),
+            ],
+            146,
+        )
+        self._payment_filter.currentIndexChanged.connect(self._apply_local_filters)
+        table_header.addWidget(self._payment_filter)
 
         export_pdf_btn = QPushButton("Export PDF")
         export_pdf_btn.setFont(inter(9, QFont.Medium))
@@ -717,40 +745,80 @@ class ReportTabPanel(QFrame):
 
         # Table
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
+        self.table.setObjectName("reportDeliveryTable")
+        self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(
-            ["Delivery ID", "Customer", "Product", "Status", "Amount", "Date"]
+            ["Delivery ID", "Customer", "Product", "Status", "Payment", "Amount", "Date"]
         )
+        for col_idx in range(self.table.columnCount()):
+            header_item = self.table.horizontalHeaderItem(col_idx)
+            if header_item is None:
+                continue
+            if col_idx in (3, 4):
+                header_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+            elif col_idx == 5:
+                header_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            else:
+                header_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.setFocusPolicy(Qt.NoFocus)
+        self.table.setFont(inter(11))
+        self.table.setSortingEnabled(True)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(44)
-        self.table.verticalHeader().setMinimumSectionSize(40)
+        self.table.verticalHeader().setDefaultSectionSize(56)
+        self.table.verticalHeader().setMinimumSectionSize(52)
         self.table.setWordWrap(False)
+        self.table.setShowGrid(False)
+        self.table.setAlternatingRowColors(True)
         self.table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self.table.horizontalHeader().setSectionResizeMode(
-            QHeaderView.Stretch
-        )
+        header = self.table.horizontalHeader()
+        header.setFont(inter(11, QFont.DemiBold))
+        header.setFixedHeight(48)
+        header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        header.setHighlightSections(False)
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Stretch)
+        header.setSectionResizeMode(2, QHeaderView.Stretch)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
+        header.setSectionResizeMode(5, QHeaderView.Fixed)
+        header.setSectionResizeMode(6, QHeaderView.Fixed)
         self.table.setStyleSheet(
             f"""
-            QTableWidget{{
-                background:{WHITE};border:1px solid {GRAY_2};border-radius:4px;
-                gridline-color:{GRAY_2};
+            QTableWidget#reportDeliveryTable{{
+                background:{WHITE};
+                alternate-background-color:#f8fbfa;
+                border:1px solid {GRAY_2};
+                border-radius:8px;
+                gridline-color:transparent;
             }}
-            QHeaderView::section{{
-                background:{GRAY_1};color:{GRAY_5};padding:8px;
-                font-weight:600;border:none;border-right:1px solid {GRAY_2};
+            QTableWidget#reportDeliveryTable QHeaderView::section{{
+                background:#f4f8f7;
+                color:{GRAY_5};
+                padding:0 12px;
+                font-size:14px;
+                font-weight:600;
+                border:none;
+                border-bottom:1px solid {GRAY_2};
             }}
-            QTableWidget::item{{
-                padding:8px;border-bottom:1px solid {GRAY_2};
+            QTableWidget#reportDeliveryTable::item{{
+                color:{GRAY_5};
+                padding:0 12px;
+                font-size:14px;
+                border:none;
+                border-bottom:1px solid #edf2f1;
             }}
-            QTableWidget::item:selected{{
+            QTableWidget#reportDeliveryTable::item:selected{{
                 background:{TEAL_PALE};color:{TEAL_DARK};
             }}
-            QTableWidget::item:focus{{
+            QTableWidget#reportDeliveryTable::item:hover{{
+                background:#eef8f6;
+            }}
+            QTableWidget#reportDeliveryTable::item:focus{{
                 outline:none;
                 border:none;
             }}
@@ -802,96 +870,410 @@ class ReportTabPanel(QFrame):
         )
         self.table.setStyleSheet(self.table.styleSheet() + owner_scrollbar_qss())
         self.table.setFixedHeight(488)
-        self.table.setColumnWidth(0, 100)
-        self.table.setColumnWidth(1, 150)
-        self.table.setColumnWidth(2, 120)
-        self.table.setColumnWidth(3, 100)
-        self.table.setColumnWidth(4, 120)
-        self.table.setColumnWidth(5, 120)
+        self.table.setColumnWidth(0, 104)
+        self.table.setColumnWidth(3, 132)
+        self.table.setColumnWidth(4, 188)
+        self.table.setColumnWidth(5, 148)
+        self.table.setColumnWidth(6, 138)
 
         self._populate_table()
         lay.addWidget(self.table)
 
+    def _summary_panel(self, title, top_color, height=224):
+        frame = QFrame()
+        frame.setStyleSheet(
+            f"""
+            QFrame{{
+                background:{WHITE};
+                border:1px solid {GRAY_2};
+                border-radius:8px;
+            }}
+            """
+        )
+        frame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        frame.setFixedHeight(height)
+
+        root = QVBoxLayout(frame)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        top = QFrame()
+        top.setFixedHeight(4)
+        top.setStyleSheet(
+            f"background:{top_color};border:none;border-top-left-radius:8px;border-top-right-radius:8px;"
+        )
+        root.addWidget(top)
+
+        body = QWidget()
+        body.setStyleSheet("background:transparent;border:none;")
+        body_lay = QVBoxLayout(body)
+        body_lay.setContentsMargins(20, 15, 20, 18)
+        body_lay.setSpacing(8)
+
+        title_lbl = QLabel(title)
+        title_lbl.setFont(inter(10, QFont.DemiBold))
+        title_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;")
+        body_lay.addWidget(title_lbl)
+
+        root.addWidget(body)
+        return frame, body_lay
+
+    def _summary_value(self, label, value, color=TEAL_DARK):
+        item = QWidget()
+        item.setStyleSheet("background:transparent;border:none;")
+        item.setMinimumHeight(38)
+        lay = QVBoxLayout(item)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(1)
+
+        label_lbl = QLabel(label)
+        label_lbl.setFont(inter(10, QFont.Medium))
+        label_lbl.setMinimumHeight(15)
+        label_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+        value_lbl = QLabel(value)
+        value_lbl.setFont(inter(14, QFont.DemiBold))
+        value_lbl.setMinimumHeight(21)
+        value_lbl.setStyleSheet(f"color:{color};background:transparent;border:none;")
+
+        lay.addWidget(label_lbl)
+        lay.addWidget(value_lbl)
+        return item, value_lbl
+
+    def _insight_row(self, label):
+        item = QWidget()
+        item.setStyleSheet("background:transparent;border:none;")
+        item.setMinimumHeight(48)
+        item.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        lay = QHBoxLayout(item)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
+
+        label_lbl = QLabel(label)
+        label_lbl.setFont(inter(10, QFont.Medium))
+        label_lbl.setFixedWidth(132)
+        label_lbl.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        label_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+        value_col = QVBoxLayout()
+        value_col.setContentsMargins(0, 0, 0, 0)
+        value_col.setSpacing(1)
+
+        value_lbl = QLabel("-")
+        value_lbl.setFont(inter(14, QFont.DemiBold))
+        value_lbl.setMinimumHeight(22)
+        value_lbl.setWordWrap(False)
+        value_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+
+        detail_lbl = QLabel("")
+        detail_lbl.setFont(inter(9))
+        detail_lbl.setMinimumHeight(14)
+        detail_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+        lay.addWidget(label_lbl)
+        value_col.addWidget(value_lbl)
+        value_col.addWidget(detail_lbl)
+        lay.addLayout(value_col, 1)
+        return item, value_lbl, detail_lbl
+
+    def _build_filter_combo(self, items, width):
+        combo = QComboBox()
+        combo.setFont(inter(9, QFont.Medium))
+        combo.setFixedSize(width, 32)
+        combo.setCursor(Qt.PointingHandCursor)
+        for label, data in items:
+            combo.addItem(label, data)
+        combo.setStyleSheet(
+            f"""
+            QComboBox{{
+                background:{WHITE};
+                color:{TEAL_DARK};
+                border:1px solid {TEAL_LIGHT};
+                border-radius:4px;
+                padding:0 28px 0 10px;
+            }}
+            QComboBox:hover{{background:{TEAL_PALE};}}
+            QComboBox::drop-down{{
+                width:24px;
+                border:none;
+                background:transparent;
+            }}
+            QComboBox QAbstractItemView{{
+                background:{WHITE};
+                color:{GRAY_5};
+                border:1px solid {GRAY_2};
+                selection-background-color:{TEAL_PALE};
+                selection-color:{TEAL_DARK};
+            }}
+            """
+        )
+        return combo
+
     def _get_sales_texts(self):
+        from_date = self._current_from_date
+        to_date = self._current_to_date
+        if from_date == to_date:
+            range_text = from_date.toString("MMMM d, yyyy")
+        else:
+            range_text = f"{from_date.toString('MMMM d, yyyy')} - {to_date.toString('MMMM d, yyyy')}"
+
         if self.period_name == "Daily":
-            day_text = self.end_date.toString("MMMM d, yyyy")
-            return "TOTAL SALES TODAY", f"All paid transactions today ({day_text})"
+            return "DELIVERED SALES", f"Delivered sales ({range_text})"
 
         if self.period_name == "Weekly":
-            start_text = self.start_date.toString("MMMM d, yyyy")
-            end_text = self.end_date.toString("MMMM d, yyyy")
-            return "TOTAL SALES THIS WEEK", f"All paid transactions ({start_text} - {end_text})"
+            return "DELIVERED SALES THIS WEEK", f"Delivered sales ({range_text})"
 
-        month_text = self.end_date.toString("MMMM yyyy")
-        return "TOTAL SALES THIS MONTH", f"All paid transactions ({month_text})"
+        return "DELIVERED SALES THIS MONTH", f"Delivered sales ({range_text})"
+
+    def _refresh_sales_labels(self):
+        title_text, desc_text = self._get_sales_texts()
+        self._sales_title_lbl.setText(title_text)
+        self._sales_desc_lbl.setText(desc_text)
 
     def _populate_table(self):
         """Populate table with delivery data"""
+        self.table.setSortingEnabled(False)
+        self.table.clearSpans()
         self.table.setRowCount(0)
+        if not self._filtered_data:
+            self.table.setRowCount(1)
+            self.table.setSpan(0, 0, 1, self.table.columnCount())
+            empty_item = QTableWidgetItem("No report records found for the selected filters.")
+            empty_item.setTextAlignment(Qt.AlignCenter)
+            empty_item.setFont(inter(10, QFont.Medium))
+            empty_item.setForeground(QColor(GRAY_4))
+            self.table.setItem(0, 0, empty_item)
+            return
+
         for row_idx, delivery in enumerate(self._filtered_data):
             self.table.insertRow(row_idx)
-            self.table.setRowHeight(row_idx, 44)
+            self.table.setRowHeight(row_idx, 56)
 
             # Delivery ID
-            id_item = QTableWidgetItem(delivery["id"])
-            id_item.setFont(inter(9, QFont.Medium))
+            id_item = QTableWidgetItem(str(delivery.get("id", "")))
+            id_item.setFont(inter(11, QFont.Medium))
             id_item.setForeground(QColor(TEAL_DARK))
+            id_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.table.setItem(row_idx, 0, id_item)
 
             # Customer
-            cust_item = QTableWidgetItem(delivery["customer"])
-            cust_item.setFont(inter(9))
+            cust_item = QTableWidgetItem(str(delivery.get("customer", "")))
+            cust_item.setFont(inter(11))
+            cust_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.table.setItem(row_idx, 1, cust_item)
 
             # Product
-            prod_item = QTableWidgetItem(delivery["product"])
-            prod_item.setFont(inter(9))
+            prod_item = QTableWidgetItem(str(delivery.get("product", "")))
+            prod_item.setFont(inter(11))
+            prod_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
             self.table.setItem(row_idx, 2, prod_item)
 
             # Status
+            status = str(delivery.get("status", ""))
+            status_item = QTableWidgetItem("")
+            status_item.setData(Qt.UserRole, status)
+            status_item.setFont(inter(11))
+            self.table.setItem(row_idx, 3, status_item)
             status_widget = QWidget()
+            status_widget.setStyleSheet("background:transparent;border:none;")
             status_layout = QHBoxLayout(status_widget)
             status_layout.setContentsMargins(0, 0, 0, 0)
             status_layout.setAlignment(Qt.AlignCenter)
-            status_badge = StatusBadge(delivery["status"])
+            status_badge = StatusBadge(status)
             status_layout.addWidget(status_badge)
             self.table.setCellWidget(row_idx, 3, status_widget)
 
+            # Payment
+            payment_status = self._payment_status_for_row(delivery)
+            payment_item = QTableWidgetItem("")
+            payment_item.setData(Qt.UserRole, payment_status)
+            payment_item.setFont(inter(11))
+            self.table.setItem(row_idx, 4, payment_item)
+            payment_widget = QWidget()
+            payment_widget.setStyleSheet("background:transparent;border:none;")
+            payment_layout = QHBoxLayout(payment_widget)
+            payment_layout.setContentsMargins(0, 0, 0, 0)
+            payment_layout.setAlignment(Qt.AlignCenter)
+            payment_layout.addWidget(PaymentBadge(payment_status))
+            self.table.setCellWidget(row_idx, 4, payment_widget)
+
             # Amount
-            amount_item = QTableWidgetItem(f"₱ {delivery['amount']:,.2f}")
-            amount_item.setFont(inter(9, QFont.Medium))
-            amount_item.setForeground(QColor(GREEN))
-            self.table.setItem(row_idx, 4, amount_item)
+            amount = float(delivery.get("amount", 0.0) or 0.0)
+            amount_item = QTableWidgetItem(f"PHP {amount:,.2f}")
+            amount_item.setFont(inter(11, QFont.Medium))
+            amount_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            amount_item.setForeground(QColor(GREEN if status == "Delivered" else GRAY_4))
+            self.table.setItem(row_idx, 5, amount_item)
 
             # Date
-            date_item = QTableWidgetItem(delivery["date"])
-            date_item.setFont(inter(9))
-            self.table.setItem(row_idx, 5, date_item)
+            date_item = QTableWidgetItem(self._format_table_date(delivery.get("date", "")))
+            date_item.setFont(inter(11))
+            date_item.setForeground(QColor(GRAY_5))
+            date_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+            self.table.setItem(row_idx, 6, date_item)
+
+        self.table.setSortingEnabled(True)
+
+    def _format_table_date(self, raw_date):
+        raw_text = str(raw_date or "").strip()
+        parsed = QDate.fromString(raw_text, "yyyy-MM-dd")
+        if parsed.isValid():
+            return parsed.toString("MMM d, yyyy")
+        return raw_text
 
     def apply_date_filter(self, from_date, to_date):
         """Filter this tab's data by selected date range and refresh KPIs/table."""
         self._current_from_date = from_date
         self._current_to_date = to_date
-        self._filtered_data = [
-            row
-            for row in self._base_data
-            if from_date
-            <= QDate.fromString(row["date"], "yyyy-MM-dd")
-            <= to_date
-        ]
+        self._apply_local_filters()
 
-        delivered_count = len([d for d in self._filtered_data if d["status"] == "Delivered"])
-        pending_count = len([d for d in self._filtered_data if d["status"] == "Pending"])
-        cancelled_count = len([d for d in self._filtered_data if d["status"] == "Cancelled"])
-        total_sales = sum(d["amount"] for d in self._filtered_data)
+    def _selected_filter_data(self, combo):
+        if combo is None:
+            return "All"
+        value = combo.currentData()
+        return value if value is not None else "All"
 
-        self.kpi_total.set_value(str(len(self._filtered_data)))
-        self.kpi_delivered.set_value(str(delivered_count))
-        self.kpi_pending.set_value(str(pending_count))
-        self.kpi_cancelled.set_value(str(cancelled_count))
-        self._sales_val_lbl.setText(f"₱ {total_sales:,.2f}")
+    def _row_date(self, row):
+        raw_date = str(row.get("date", "")).strip()
+        row_date = QDate.fromString(raw_date, "yyyy-MM-dd")
+        if row_date.isValid():
+            return row_date
+        row_date = QDate.fromString(raw_date, "MMM d, yyyy")
+        return row_date if row_date.isValid() else QDate()
 
+    def _payment_status_for_row(self, row):
+        payment_status = str(row.get("payment_status") or "").strip()
+        if payment_status:
+            return payment_status
+        return "Unpaid" if row.get("status") == "Delivered" else "Not Applicable"
+
+    def _compact_label(self, value, limit=26):
+        text = str(value or "").strip()
+        if not text:
+            return "-"
+        if len(text) <= limit:
+            return text
+        return f"{text[:max(0, limit - 3)]}..."
+
+    def _is_unfiltered(self):
+        return (
+            self._selected_filter_data(getattr(self, "_status_filter", None)) == "All"
+            and self._selected_filter_data(getattr(self, "_payment_filter", None)) == "All"
+        )
+
+    def _apply_local_filters(self, *args, prefer_summary=False):
+        status_filter = self._selected_filter_data(getattr(self, "_status_filter", None))
+        payment_filter = self._selected_filter_data(getattr(self, "_payment_filter", None))
+
+        filtered_rows = []
+        for row in self._base_data:
+            row_date = self._row_date(row)
+            if not row_date.isValid():
+                continue
+            if not (self._current_from_date <= row_date <= self._current_to_date):
+                continue
+            if status_filter != "All" and row.get("status") != status_filter:
+                continue
+            if payment_filter != "All" and self._payment_status_for_row(row) != payment_filter:
+                continue
+            filtered_rows.append(row)
+
+        self._filtered_data = filtered_rows
+        if prefer_summary and self._is_unfiltered():
+            self._refresh_metrics(self._summary_data)
+        else:
+            self._refresh_metrics(self._metrics_from_rows(filtered_rows))
         self._populate_table()
+
+    def _metrics_from_rows(self, rows):
+        statuses_by_delivery = {}
+        for index, row in enumerate(rows):
+            key = str(row.get("id") or f"row-{index}")
+            statuses_by_delivery.setdefault(key, row.get("status", ""))
+
+        total_delivered = sum(1 for status in statuses_by_delivery.values() if status == "Delivered")
+        total_pending = sum(1 for status in statuses_by_delivery.values() if status == "Pending")
+        total_in_transit = sum(1 for status in statuses_by_delivery.values() if status == "In Transit")
+        total_cancelled = sum(1 for status in statuses_by_delivery.values() if status == "Cancelled")
+
+        delivered_rows = [row for row in rows if row.get("status") == "Delivered"]
+        total_sales = sum(float(row.get("amount", 0.0) or 0.0) for row in delivered_rows)
+        total_paid = sum(
+            float(row.get("amount", 0.0) or 0.0)
+            for row in delivered_rows
+            if self._payment_status_for_row(row) == "Paid"
+        )
+        total_unpaid = sum(
+            float(row.get("amount", 0.0) or 0.0)
+            for row in delivered_rows
+            if self._payment_status_for_row(row) == "Unpaid"
+        )
+
+        delivery_totals = {}
+        sales_by_day = {}
+        product_totals = {}
+        for row in delivered_rows:
+            amount = float(row.get("amount", 0.0) or 0.0)
+            delivery_id = str(row.get("id") or "")
+            if delivery_id:
+                delivery_totals[delivery_id] = delivery_totals.get(delivery_id, 0.0) + amount
+
+            row_date = self._row_date(row)
+            if row_date.isValid():
+                day_name = row_date.toString("dddd")
+                sales_by_day[day_name] = sales_by_day.get(day_name, 0.0) + amount
+
+            product_name = str(row.get("product") or "").strip()
+            if product_name:
+                quantity = int(row.get("quantity") or self._infer_quantity(product_name) or 0)
+                product_row = product_totals.setdefault(
+                    product_name,
+                    {"quantity": 0, "revenue": 0.0},
+                )
+                product_row["quantity"] += quantity
+                product_row["revenue"] += amount
+
+        avg_transaction_value = (
+            sum(delivery_totals.values()) / len(delivery_totals)
+            if delivery_totals
+            else 0.0
+        )
+        peak_sales_day = ""
+        peak_sales_amount = 0.0
+        if sales_by_day:
+            peak_sales_day, peak_sales_amount = max(
+                sales_by_day.items(),
+                key=lambda item: (item[1], item[0]),
+            )
+
+        most_sold_product = ""
+        most_sold_product_quantity = 0
+        most_sold_product_revenue = 0.0
+        if product_totals:
+            most_sold_product, most_sold_values = max(
+                product_totals.items(),
+                key=lambda item: (item[1]["quantity"], item[1]["revenue"], item[0]),
+            )
+            most_sold_product_quantity = most_sold_values["quantity"]
+            most_sold_product_revenue = most_sold_values["revenue"]
+
+        return {
+            "total_deliveries": len(statuses_by_delivery),
+            "total_delivered": total_delivered,
+            "total_pending": total_pending,
+            "total_in_transit": total_in_transit,
+            "total_cancelled": total_cancelled,
+            "total_sales": total_sales,
+            "total_paid": total_paid,
+            "total_unpaid": total_unpaid,
+            "avg_transaction_value": avg_transaction_value,
+            "peak_sales_day": peak_sales_day,
+            "peak_sales_amount": peak_sales_amount,
+            "most_sold_product": most_sold_product,
+            "most_sold_product_quantity": most_sold_product_quantity,
+            "most_sold_product_revenue": most_sold_product_revenue,
+        }
 
     def _export_pdf(self):
         default_name = f"{self.period_name.lower()}_report.pdf"
@@ -934,12 +1316,14 @@ class ReportTabPanel(QFrame):
 
     def _report_rows(self):
         rows = []
-        for index, row in enumerate(self._filtered_data, start=1):
-            payment_status = row.get("payment_status") or ("Paid" if row.get("status") == "Delivered" else "Unpaid")
-            delivery_type = row.get("delivery_type") or ("New Tank" if index % 5 == 0 else "Refill")
+        for row in self._filtered_data:
+            payment_status = self._payment_status_for_row(row)
+            delivery_type = row.get("type") or row.get("delivery_type") or ""
+            row_date = self._row_date(row)
+            date_text = row_date.toString("MMM d, yyyy") if row_date.isValid() else str(row.get("date", ""))
             rows.append(
                 {
-                    "date": QDate.fromString(row["date"], "yyyy-MM-dd").toString("MMM d, yyyy"),
+                    "date": date_text,
                     "customer": row.get("customer", ""),
                     "product": row.get("product", ""),
                     "quantity": row.get("quantity") or self._infer_quantity(row.get("product", "")),
@@ -952,24 +1336,20 @@ class ReportTabPanel(QFrame):
         return rows
 
     def _summary_metrics(self):
-        rows = self._filtered_data
-        export_rows = self._report_rows()
-        total_deliveries = len(rows)
-        total_delivered = len([row for row in rows if row.get("status") == "Delivered"])
-        total_cancelled = len([row for row in rows if row.get("status") == "Cancelled"])
-        total_pending = len([row for row in rows if row.get("status") == "Pending"])
-        total_sales = sum(float(row.get("amount", 0.0)) for row in rows)
-        total_paid = sum(row["amount"] for row in export_rows if row["payment_status"] == "Paid")
-        total_unpaid = sum(row["amount"] for row in export_rows if row["payment_status"] == "Unpaid")
+        return self._metrics_from_rows(self._filtered_data)
 
+    def _insight_values(self, summary):
+        peak_day = str(summary.get("peak_sales_day") or "").strip() or "-"
+        peak_amount = float(summary.get("peak_sales_amount", 0) or 0)
+        product = str(summary.get("most_sold_product") or "").strip() or "-"
+        product_quantity = int(summary.get("most_sold_product_quantity", 0) or 0)
+        avg_value = float(summary.get("avg_transaction_value", 0) or 0)
         return {
-            "total_deliveries": total_deliveries,
-            "total_delivered": total_delivered,
-            "total_cancelled": total_cancelled,
-            "total_pending": total_pending,
-            "total_sales": total_sales,
-            "total_paid": total_paid,
-            "total_unpaid": total_unpaid,
+            "peak_day": peak_day,
+            "peak_amount": peak_amount,
+            "product": product,
+            "product_quantity": product_quantity,
+            "avg_value": avg_value,
         }
 
     def _export_metadata(self):
@@ -1083,15 +1463,17 @@ class ReportTabPanel(QFrame):
             "Delivered",
             "Cancelled",
             "Pending",
-            "Total sales (₱)",
-            "Total paid (₱)",
-            "Total unpaid (₱)",
+            "In transit",
+            "Delivered sales (PHP)",
+            "Total paid (PHP)",
+            "Total unpaid (PHP)",
         ]
         summary_values = [
             str(summary["total_deliveries"]),
             str(summary["total_delivered"]),
             str(summary["total_cancelled"]),
             str(summary["total_pending"]),
+            str(summary["total_in_transit"]),
             f"{summary['total_sales']:,.2f}",
             f"{summary['total_paid']:,.2f}",
             f"{summary['total_unpaid']:,.2f}",
@@ -1101,7 +1483,7 @@ class ReportTabPanel(QFrame):
                 [Paragraph(text, cell_bold_style) for text in summary_headers],
                 [Paragraph(text, cell_style) for text in summary_values],
             ],
-            colWidths=[doc.width / 7.0] * 7,
+            colWidths=[doc.width / 8.0] * 8,
             hAlign="LEFT",
         )
         summary_table.setStyle(
@@ -1121,7 +1503,53 @@ class ReportTabPanel(QFrame):
                 ]
             )
         )
-        story.extend([summary_table, Spacer(1, 12), Paragraph("Breakdown", section_style)])
+        insights = self._insight_values(summary)
+        insight_table = Table(
+            [
+                [
+                    Paragraph("Peak sales day", cell_bold_style),
+                    Paragraph("Most sold product", cell_bold_style),
+                    Paragraph("Average order value (PHP)", cell_bold_style),
+                ],
+                [
+                    Paragraph(
+                        f"{insights['peak_day']}<br/>{insights['peak_amount']:,.2f}",
+                        cell_style,
+                    ),
+                    Paragraph(
+                        f"{insights['product']}<br/>{insights['product_quantity']} sold",
+                        cell_style,
+                    ),
+                    Paragraph(f"{insights['avg_value']:,.2f}", cell_style),
+                ],
+            ],
+            colWidths=[doc.width / 3.0] * 3,
+            hAlign="LEFT",
+        )
+        insight_table.setStyle(
+            TableStyle(
+                [
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(TEAL_PALE)),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.HexColor(TEAL_DARK)),
+                    ("FONTNAME", (0, 0), (-1, -1), regular_font),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                    ("LEADING", (0, 0), (-1, -1), 10),
+                    ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                    ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                    ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor(GRAY_2)),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6),
+                    ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]
+            )
+        )
+        story.extend([
+            summary_table,
+            Spacer(1, 10),
+            Paragraph("Insights", section_style),
+            insight_table,
+            Spacer(1, 12),
+            Paragraph("Breakdown", section_style),
+        ])
 
         if rows:
             breakdown_headers = [
@@ -1130,7 +1558,7 @@ class ReportTabPanel(QFrame):
                 "Product",
                 "Quantity",
                 "Type",
-                "Amount (₱)",
+                "Amount (PHP)",
                 "Payment status",
                 "Delivery status",
             ]
@@ -1264,15 +1692,17 @@ class ReportTabPanel(QFrame):
                 "Delivered",
                 "Cancelled",
                 "Pending",
-                "Total sales (₱)",
-                "Total paid (₱)",
-                "Total unpaid (₱)",
+                "In transit",
+                "Delivered sales (PHP)",
+                "Total paid (PHP)",
+                "Total unpaid (PHP)",
             ]
             summary_values = [
                 summary["total_deliveries"],
                 summary["total_delivered"],
                 summary["total_cancelled"],
                 summary["total_pending"],
+                summary["total_in_transit"],
                 f"{summary['total_sales']:,.2f}",
                 f"{summary['total_paid']:,.2f}",
                 f"{summary['total_unpaid']:,.2f}",
@@ -1291,8 +1721,36 @@ class ReportTabPanel(QFrame):
                 cell.alignment = XLAlignment(horizontal="center", vertical="center", wrap_text=True)
                 cell.border = thin_border
 
-            sheet["A13"] = "Breakdown"
+            insights = self._insight_values(summary)
+            sheet["A13"] = "Insights"
             sheet["A13"].font = XLFont(size=11, bold=True, color="145F55")
+
+            insight_headers = [
+                "Peak sales day",
+                "Most sold product",
+                "Average order value (PHP)",
+            ]
+            insight_values = [
+                f"{insights['peak_day']} ({insights['peak_amount']:,.2f})",
+                f"{insights['product']} ({insights['product_quantity']} sold)",
+                f"{insights['avg_value']:,.2f}",
+            ]
+            for column_index, header_text in enumerate(insight_headers, start=1):
+                cell = sheet.cell(row=14, column=column_index, value=header_text)
+                cell.fill = pale_fill
+                cell.font = dark_font
+                cell.alignment = XLAlignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = thin_border
+
+            for column_index, value in enumerate(insight_values, start=1):
+                cell = sheet.cell(row=15, column=column_index, value=value)
+                cell.fill = light_fill
+                cell.font = XLFont(color="3A4A47")
+                cell.alignment = XLAlignment(horizontal="center", vertical="center", wrap_text=True)
+                cell.border = thin_border
+
+            sheet["A17"] = "Breakdown"
+            sheet["A17"].font = XLFont(size=11, bold=True, color="145F55")
 
             breakdown_headers = [
                 "Date",
@@ -1300,11 +1758,11 @@ class ReportTabPanel(QFrame):
                 "Product",
                 "Quantity",
                 "Type",
-                "Amount (₱)",
+                "Amount (PHP)",
                 "Payment status",
                 "Delivery status",
             ]
-            header_row = 14
+            header_row = 18
             for column_index, header_text in enumerate(breakdown_headers, start=1):
                 cell = sheet.cell(row=header_row, column=column_index, value=header_text)
                 cell.fill = teal_fill
@@ -1336,30 +1794,42 @@ class ReportTabPanel(QFrame):
 
             sheet.row_dimensions[10].height = 22
             sheet.row_dimensions[11].height = 22
+            sheet.row_dimensions[14].height = 22
+            sheet.row_dimensions[15].height = 26
             workbook.save(file_path)
 
             ExportNoticeDialog("Export Successful", f"Excel exported successfully to:\n{file_path}", self).exec()
         except Exception as exc:
             ExportNoticeDialog("Export Failed", f"Could not export Excel report.\n\n{exc}", self).exec()
 
-    def _refresh_metrics(self):
-        summary = self._summary_data or {}
-        self.kpi_total.set_value(str(int(summary.get("total_deliveries", 0) or 0)))
-        self.kpi_delivered.set_value(str(int(summary.get("total_delivered", 0) or 0)))
-        self.kpi_pending.set_value(str(int(summary.get("total_pending", 0) or 0)))
-        self.kpi_cancelled.set_value(str(int(summary.get("total_cancelled", 0) or 0)))
-        self._sales_val_lbl.setText(f"₱ {float(summary.get('total_sales', 0) or 0):,.2f}")
+    def _refresh_metrics(self, summary=None):
+        summary = summary or self._summary_data or {}
+        self._refresh_sales_labels()
+        self._delivery_total_lbl.setText(str(int(summary.get("total_deliveries", 0) or 0)))
+        self._delivered_value_lbl.setText(str(int(summary.get("total_delivered", 0) or 0)))
+        self._pending_value_lbl.setText(str(int(summary.get("total_pending", 0) or 0)))
+        self._in_transit_value_lbl.setText(str(int(summary.get("total_in_transit", 0) or 0)))
+        self._cancelled_value_lbl.setText(str(int(summary.get("total_cancelled", 0) or 0)))
+        self._sales_val_lbl.setText(f"PHP {float(summary.get('total_sales', 0) or 0):,.2f}")
+        self._paid_value_lbl.setText(f"PHP {float(summary.get('total_paid', 0) or 0):,.2f}")
+        self._unpaid_value_lbl.setText(f"PHP {float(summary.get('total_unpaid', 0) or 0):,.2f}")
+        self._peak_day_value_lbl.setText(self._compact_label(summary.get("peak_sales_day"), 22))
+        self._peak_day_detail_lbl.setText(f"PHP {float(summary.get('peak_sales_amount', 0) or 0):,.2f}")
+        self._most_product_value_lbl.setText(self._compact_label(summary.get("most_sold_product"), 24))
+        self._most_product_detail_lbl.setText(
+            f"{int(summary.get('most_sold_product_quantity', 0) or 0)} sold"
+        )
+        self._avg_order_value_lbl.setText(f"PHP {float(summary.get('avg_transaction_value', 0) or 0):,.2f}")
+        self._avg_order_detail_lbl.setText("Delivered sales per order")
 
     def set_report_data(self, summary, rows, from_date=None, to_date=None):
         self._summary_data = dict(summary or {})
         self._base_data = list(rows or [])
-        self._filtered_data = list(rows or [])
         if from_date is not None:
             self._current_from_date = from_date
         if to_date is not None:
             self._current_to_date = to_date
-        self._refresh_metrics()
-        self._populate_table()
+        self._apply_local_filters(prefer_summary=True)
 
 class ReportView(QFrame):
     """Main Report View"""
@@ -1431,7 +1901,7 @@ class ReportView(QFrame):
         notif = QPushButton()
         notif.setFixedSize(36, 36)
         notif.setCursor(Qt.PointingHandCursor)
-        notif.setText("🔔")
+        notif.setText("!")
         notif.setStyleSheet(
             f"""
             QPushButton{{
@@ -1487,7 +1957,7 @@ class ReportView(QFrame):
         prev_btn = calendar.findChild(QToolButton, "qt_calendar_prevmonth")
         if prev_btn is not None:
             prev_btn.setIcon(QIcon())
-            prev_btn.setText("‹")
+            prev_btn.setText("<")
             prev_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
             prev_btn.setStyleSheet(
                 f"""
@@ -1508,7 +1978,7 @@ class ReportView(QFrame):
         next_btn = calendar.findChild(QToolButton, "qt_calendar_nextmonth")
         if next_btn is not None:
             next_btn.setIcon(QIcon())
-            next_btn.setText("›")
+            next_btn.setText(">")
             next_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
             next_btn.setStyleSheet(
                 f"""
@@ -1803,6 +2273,12 @@ class ReportView(QFrame):
         to_date = self.to_date.date()
         if from_date > to_date:
             from_date, to_date = to_date, from_date
+            self.from_date.blockSignals(True)
+            self.to_date.blockSignals(True)
+            self.from_date.setDate(from_date)
+            self.to_date.setDate(to_date)
+            self.from_date.blockSignals(False)
+            self.to_date.blockSignals(False)
 
         active_tab = self._content_stack.currentWidget()
         if active_tab is not None and hasattr(active_tab, "apply_date_filter"):

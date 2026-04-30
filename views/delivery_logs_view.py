@@ -14,12 +14,8 @@ from PySide6.QtWidgets import (
 	QSizePolicy,
 	QLineEdit,
 	QComboBox,
-	QTableWidget,
-	QTableWidgetItem,
-	QHeaderView,
-	QAbstractItemView,
+	QPushButton,
 	QDialog,
-	QDialogButtonBox,
 	QDateEdit,
 	QStackedWidget,
 	QCalendarWidget,
@@ -389,76 +385,192 @@ def _attach_year_dropdown(calendar):
 class DeliveryLogDetailsDialog(QDialog):
 	def __init__(self, log_item, parent=None):
 		super().__init__(parent)
-		self.setWindowTitle("Delivery Details")
+		self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.CustomizeWindowHint)
+		self.setAttribute(Qt.WA_TranslucentBackground, True)
+		self.setWindowTitle("Delivery Status Record")
 		self.setModal(True)
-		self.setMinimumWidth(520)
+		self.setMinimumWidth(660)
 		self.setStyleSheet(
 			f"""
-			QDialog {{ background:{WHITE}; }}
+			QDialog {{ background:transparent; }}
 			QLabel {{ color:{GRAY_5}; background:transparent; border:none; }}
+			QFrame#DialogSurface {{
+				background:#f8faf9;
+				border:1px solid #d8e2e0;
+				border-radius:12px;
+			}}
 			QFrame#Card {{
 				background:{WHITE};
 				border:1px solid {GRAY_2};
+				border-radius:10px;
+			}}
+			QFrame#StatusBand {{
+				background:{TEAL_PALE};
+				border:1px solid #cfe1dd;
 				border-radius:8px;
 			}}
 			"""
 		)
 
 		root = QVBoxLayout(self)
-		root.setContentsMargins(18, 18, 18, 14)
-		root.setSpacing(12)
+		root.setContentsMargins(0, 0, 0, 0)
 
-		title = QLabel("Delivery Log Details")
-		title.setFont(playfair(18, QFont.Medium))
+		surface = QFrame()
+		surface.setObjectName("DialogSurface")
+		surface_lay = QVBoxLayout(surface)
+		surface_lay.setContentsMargins(22, 20, 22, 18)
+		surface_lay.setSpacing(14)
+		root.addWidget(surface)
+
+		header_row = QHBoxLayout()
+		header_row.setContentsMargins(0, 0, 0, 0)
+		header_row.setSpacing(16)
+
+		header_text = QVBoxLayout()
+		header_text.setContentsMargins(0, 0, 0, 0)
+		header_text.setSpacing(3)
+
+		title = QLabel("Delivery Status Record")
+		title.setFont(playfair(22, QFont.Medium))
 		title.setStyleSheet(f"color:{TEAL_DARK};")
-		root.addWidget(title)
 
-		subtitle = QLabel("Read-only delivery information from the selected status-change entry.")
+		subtitle = QLabel("Audit entry showing who updated the delivery status and when.")
 		subtitle.setFont(inter(11))
 		subtitle.setStyleSheet(f"color:{GRAY_4};")
-		root.addWidget(subtitle)
+
+		header_text.addWidget(title)
+		header_text.addWidget(subtitle)
+
+		read_only = QLabel("READ ONLY")
+		read_only.setFont(inter(9, QFont.DemiBold))
+		read_only.setAlignment(Qt.AlignCenter)
+		read_only.setFixedSize(86, 28)
+		read_only.setStyleSheet(
+			f"background:{WHITE};color:{TEAL_DARK};border:1px solid {GRAY_2};border-radius:6px;letter-spacing:1px;"
+		)
+
+		header_row.addLayout(header_text, 1)
+		header_row.addWidget(read_only, 0, Qt.AlignTop)
+		surface_lay.addLayout(header_row)
+
+		old_status = self._status_value(log_item.get("old_status", ""))
+		new_status = self._status_value(log_item.get("new_status", ""))
+
+		status_band = QFrame()
+		status_band.setObjectName("StatusBand")
+		status_lay = QHBoxLayout(status_band)
+		status_lay.setContentsMargins(16, 12, 16, 12)
+		status_lay.setSpacing(10)
+
+		status_label = QLabel("STATUS UPDATE")
+		status_label.setFont(inter(10, QFont.DemiBold))
+		status_label.setStyleSheet(f"color:{GRAY_4};letter-spacing:1px;")
+
+		status_value = QLabel(f"{old_status} to {new_status}")
+		status_value.setFont(inter(15, QFont.DemiBold))
+		status_value.setStyleSheet(f"color:{self._status_color(new_status)};")
+
+		status_lay.addWidget(status_label)
+		status_lay.addStretch()
+		status_lay.addWidget(status_value)
+		surface_lay.addWidget(status_band)
 
 		card = QFrame()
 		card.setObjectName("Card")
 		card_lay = QVBoxLayout(card)
-		card_lay.setContentsMargins(14, 14, 14, 14)
-		card_lay.setSpacing(8)
+		card_lay.setContentsMargins(18, 16, 18, 16)
+		card_lay.setSpacing(12)
+
+		section_title = QLabel("Record Information")
+		section_title.setFont(inter(10, QFont.DemiBold))
+		section_title.setStyleSheet(f"color:{TEAL_DARK};letter-spacing:0.8px;")
+		card_lay.addWidget(section_title)
 
 		detail_rows = [
-			("Delivery ID", log_item.get("delivery_id", "")),
-			("Customer name", log_item.get("customer_name", "")),
-			("Old status", self._status_value(log_item.get("old_status", ""))),
-			("New status", self._status_value(log_item.get("new_status", ""))),
-			("Changed by", log_item.get("changed_by", "")),
-			("Date and time", log_item.get("changed_at", "")),
-			("Address", log_item.get("address", "")),
-			("Scheduled date", log_item.get("scheduled_date", "")),
-			("Products", log_item.get("products", "")),
+			("Delivery", self._delivery_reference(log_item.get("delivery_id", ""))),
+			("Customer", log_item.get("customer_name", "")),
+			("Updated by", log_item.get("changed_by", "")),
+			("Updated at", log_item.get("changed_at", "")),
+			("Scheduled for", log_item.get("scheduled_date", "")),
+			("Delivery address", log_item.get("address", "")),
+			("Items", log_item.get("products", "")),
 			("Notes", log_item.get("notes", "")),
 		]
 
 		for label_text, value_text in detail_rows:
-			row = QLabel(f"{label_text}: {value_text}")
-			row.setFont(inter(11))
-			row.setWordWrap(True)
-			card_lay.addWidget(row)
+			card_lay.addWidget(self._detail_row(label_text, value_text))
 
-		root.addWidget(card)
+		surface_lay.addWidget(card)
 
-		buttons = QDialogButtonBox(QDialogButtonBox.Close)
-		close_btn = buttons.button(QDialogButtonBox.Close)
-		close_btn.setText("Close")
+		btn_row = QHBoxLayout()
+		btn_row.addStretch()
+
+		close_btn = QPushButton("Close")
+		close_btn.setCursor(Qt.PointingHandCursor)
+		close_btn.setFont(inter(10, QFont.Medium))
+		close_btn.setFixedSize(92, 34)
 		close_btn.setStyleSheet(
-			f"QPushButton{{background:{WHITE};border:1px solid {GRAY_2};color:{GRAY_5};padding:6px 14px;border-radius:5px;}}"
+			f"""
+			QPushButton {{
+				background:{TEAL};
+				color:{WHITE};
+				border:1px solid {TEAL};
+				border-radius:6px;
+			}}
+			QPushButton:hover {{
+				background:{TEAL_DARK};
+			}}
+			"""
 		)
-		buttons.rejected.connect(self.reject)
-		buttons.accepted.connect(self.accept)
-		root.addWidget(buttons)
+		close_btn.clicked.connect(self.accept)
+		btn_row.addWidget(close_btn)
+		surface_lay.addLayout(btn_row)
+
+	def _detail_row(self, label_text, value_text):
+		row = QWidget()
+		row.setStyleSheet("background:transparent;border:none;")
+		lay = QHBoxLayout(row)
+		lay.setContentsMargins(0, 0, 0, 0)
+		lay.setSpacing(14)
+
+		label = QLabel(label_text)
+		label.setFont(inter(10, QFont.DemiBold))
+		label.setFixedWidth(126)
+		label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+		label.setStyleSheet(f"color:{GRAY_4};letter-spacing:0.5px;")
+
+		value = QLabel(str(value_text or "-"))
+		value.setFont(inter(11, QFont.Medium))
+		value.setWordWrap(True)
+		value.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+		value.setStyleSheet(f"color:{GRAY_5};")
+
+		lay.addWidget(label)
+		lay.addWidget(value, 1)
+		return row
+
+	@staticmethod
+	def _delivery_reference(value):
+		text = str(value or "").strip()
+		return f"#{text}" if text else "-"
 
 	@staticmethod
 	def _status_value(value, fallback="-"):
 		text = str(value or "").strip()
 		return text or fallback
+
+	@staticmethod
+	def _status_color(status):
+		status_lower = str(status or "").strip().lower()
+		if status_lower == "delivered":
+			return "#087443"
+		if status_lower == "cancelled":
+			return "#a70000"
+		if status_lower == "pending":
+			return "#9a5c00"
+		if status_lower == "in transit":
+			return TEAL_DARK
+		return GRAY_5
 
 
 class DeliveryLogsView(QWidget):
@@ -473,7 +585,7 @@ class DeliveryLogsView(QWidget):
 		self.setStyleSheet(f"background:{GRAY_1};")
 		self._build_ui()
 		self._populate_status_type_filter()
-		self._render_table()
+		self._render_logs()
 		if controller:
 			self.bind_controller(controller, request_initial=True)
 
@@ -517,11 +629,39 @@ class DeliveryLogsView(QWidget):
 		top.addWidget(desc)
 		content_lay.addLayout(top)
 
+		summary_row = QHBoxLayout()
+		summary_row.setContentsMargins(0, 4, 0, 0)
+		summary_row.setSpacing(12)
+
+		visible_card, self._visible_logs_lbl = self._summary_card(
+			"VISIBLE LOGS",
+			"0",
+			"Matching current filters",
+			TEAL,
+		)
+		tracked_card, self._tracked_deliveries_lbl = self._summary_card(
+			"DELIVERIES TRACKED",
+			"0",
+			"Unique delivery records",
+			TEAL_DARK,
+		)
+		latest_card, self._latest_change_lbl = self._summary_card(
+			"LATEST CHANGE",
+			"-",
+			"Most recent visible log",
+			GRAY_5,
+		)
+		summary_row.addWidget(visible_card, 1)
+		summary_row.addWidget(tracked_card, 1)
+		summary_row.addWidget(latest_card, 2)
+		content_lay.addLayout(summary_row)
+
 		filter_row = QHBoxLayout()
+		filter_row.setContentsMargins(0, 4, 0, 2)
 		filter_row.setSpacing(10)
 
 		self._filter_delivery_id = QLineEdit()
-		self._filter_delivery_id.setPlaceholderText("Filter by Delivery ID")
+		self._filter_delivery_id.setPlaceholderText("Search delivery ID")
 		self._filter_delivery_id.setFont(inter(11))
 		self._filter_delivery_id.setFixedHeight(34)
 		self._filter_delivery_id.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
@@ -592,69 +732,7 @@ class DeliveryLogsView(QWidget):
 		filter_row.addWidget(self._date_to)
 		content_lay.addLayout(filter_row)
 
-		self._table = QTableWidget(0, 6)
-		self._table.setHorizontalHeaderLabels([
-			"DELIVERY ID",
-			"CUSTOMER NAME",
-			"OLD STATUS",
-			"NEW STATUS",
-			"CHANGED BY",
-			"DATE AND TIME OF CHANGE",
-		])
-		self._table.verticalHeader().setVisible(False)
-		self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-		self._table.setSelectionMode(QAbstractItemView.SingleSelection)
-		self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-		self._table.setFocusPolicy(Qt.NoFocus)
-		self._table.setWordWrap(False)
-		self._table.setShowGrid(False)
-		self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-		self._table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-		self._table.setStyleSheet(
-			f"""
-			QTableWidget {{
-				background:{WHITE};
-				border:1px solid {GRAY_2};
-				border-radius:8px;
-				gridline-color:transparent;
-				selection-background-color:{TEAL_PALE};
-				selection-color:{TEAL_DARK};
-			}}
-			QHeaderView::section {{
-				background:#f7f8f8;
-				color:{GRAY_4};
-				border:none;
-				border-bottom:1px solid {GRAY_2};
-				padding:10px 8px;
-				font-family:'{INTER_FAMILY}';
-				font-size:12px;
-				font-weight:600;
-				letter-spacing:1px;
-			}}
-			QTableWidget::item {{
-				padding:6px 8px;
-				border:none;
-				border-bottom:1px solid #f3f5f4;
-				color:{GRAY_5};
-			}}
-			QTableWidget::item:selected {{
-				background:{TEAL_PALE};
-				color:{TEAL_DARK};
-				border-bottom:1px solid #f3f5f4;
-			}}
-			"""
-		)
-		self._table.setStyleSheet(self._table.styleSheet() + owner_scrollbar_qss())
-		self._table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-		self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-		self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-		self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-		self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-		self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-		self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-		self._table.setColumnWidth(5, 280)
-		self._table.horizontalHeader().setFixedHeight(55)
-		self._table.cellDoubleClicked.connect(self._on_row_clicked)
+		self._logs_card = self._build_logs_card()
 
 		self._empty = QWidget()
 		empty_lay = QVBoxLayout(self._empty)
@@ -695,12 +773,112 @@ class DeliveryLogsView(QWidget):
 		empty_lay.addWidget(empty_desc)
 
 		self._stack = QStackedWidget()
-		self._stack.addWidget(self._table)
+		self._stack.addWidget(self._logs_card)
 		self._stack.addWidget(self._empty)
 		content_lay.addWidget(self._stack)
 
 		scroll.setWidget(content)
 		root.addWidget(scroll)
+
+	def _summary_card(self, title, value, caption, color):
+		card = QFrame()
+		card.setStyleSheet(
+			f"""
+			QFrame {{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:8px;
+			}}
+			"""
+		)
+		card.setFixedHeight(96)
+		card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+		lay = QVBoxLayout(card)
+		lay.setContentsMargins(18, 12, 18, 12)
+		lay.setSpacing(3)
+
+		title_lbl = QLabel(title)
+		title_lbl.setFont(inter(9, QFont.DemiBold))
+		title_lbl.setStyleSheet(
+			f"color:{GRAY_4};letter-spacing:1.2px;background:transparent;border:none;"
+		)
+
+		value_lbl = QLabel(value)
+		value_lbl.setFont(inter(19, QFont.DemiBold))
+		value_lbl.setMinimumHeight(28)
+		value_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		value_lbl.setStyleSheet(f"color:{color};background:transparent;border:none;")
+
+		caption_lbl = QLabel(caption)
+		caption_lbl.setFont(inter(10))
+		caption_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+		lay.addWidget(title_lbl)
+		lay.addWidget(value_lbl)
+		lay.addWidget(caption_lbl)
+		lay.addStretch()
+		return card, value_lbl
+
+	def _build_logs_card(self):
+		card = QFrame()
+		card.setStyleSheet(
+			f"""
+			QFrame#LogsCard {{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:8px;
+			}}
+			"""
+		)
+		card.setObjectName("LogsCard")
+		card.setMinimumHeight(540)
+		card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+
+		root = QVBoxLayout(card)
+		root.setContentsMargins(0, 0, 0, 0)
+		root.setSpacing(0)
+
+		header = QWidget()
+		header.setFixedHeight(54)
+		header.setStyleSheet(f"background:#f4f8f7;border:none;border-bottom:1px solid {GRAY_2};")
+		header_lay = QHBoxLayout(header)
+		header_lay.setContentsMargins(16, 0, 16, 0)
+		header_lay.setSpacing(14)
+
+		header_lay.addWidget(self._log_header_label("DELIVERY ID", 112))
+		header_lay.addWidget(self._log_header_label("CUSTOMER", None), 1)
+		header_lay.addWidget(self._log_header_label("STATUS CHANGE", 210))
+		header_lay.addWidget(self._log_header_label("CHANGED BY", 170))
+		header_lay.addWidget(self._log_header_label("DATE & TIME", 220))
+		root.addWidget(header)
+
+		self._logs_scroll = QScrollArea()
+		self._logs_scroll.setWidgetResizable(True)
+		self._logs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		self._logs_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+		self._logs_scroll.setStyleSheet(owner_scrollbar_qss())
+
+		self._logs_list = QWidget()
+		self._logs_list.setStyleSheet("background:transparent;border:none;")
+		self._logs_lay = QVBoxLayout(self._logs_list)
+		self._logs_lay.setContentsMargins(14, 14, 14, 14)
+		self._logs_lay.setSpacing(8)
+
+		self._logs_scroll.setWidget(self._logs_list)
+		root.addWidget(self._logs_scroll)
+		return card
+
+	def _log_header_label(self, text, width=None):
+		label = QLabel(text)
+		label.setFont(inter(10, QFont.DemiBold))
+		label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		label.setStyleSheet(
+			f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;"
+		)
+		if width is not None:
+			label.setFixedWidth(width)
+		return label
 
 	def _configure_date_edit(self, date_edit, min_height=34, min_width=130):
 		date_edit.setStyleSheet(_date_edit_style(min_height=min_height, min_width=min_width))
@@ -933,39 +1111,119 @@ class DeliveryLogsView(QWidget):
 			return date_from <= changed_date <= date_to
 
 		self._filtered_logs = [log_item for log_item in self._all_logs if matches(log_item)]
-		self._render_table()
+		self._update_summary_cards()
+		self._render_logs()
 
-	def _render_table(self):
+	def _update_summary_cards(self):
+		if not hasattr(self, "_visible_logs_lbl"):
+			return
+
+		visible_count = len(self._filtered_logs)
+		delivery_count = len(
+			{
+				str(log_item.get("delivery_id", "")).strip()
+				for log_item in self._filtered_logs
+				if str(log_item.get("delivery_id", "")).strip()
+			}
+		)
+		latest_change = "-"
+		if self._filtered_logs:
+			latest_change = str(self._filtered_logs[0].get("changed_at", "") or "-")
+
+		self._visible_logs_lbl.setText(f"{visible_count:,}")
+		self._tracked_deliveries_lbl.setText(f"{delivery_count:,}")
+		self._latest_change_lbl.setText(latest_change)
+
+	def _render_logs(self):
+		self._clear_log_rows()
 		if not self._filtered_logs:
-			self._table.setRowCount(0)
 			self._stack.setCurrentWidget(self._empty)
 			return
 
-		self._stack.setCurrentWidget(self._table)
-		self._table.setRowCount(len(self._filtered_logs))
+		self._stack.setCurrentWidget(self._logs_card)
 
 		for row_index, log_item in enumerate(self._filtered_logs):
-			self._set_item(row_index, 0, log_item.get("delivery_id", ""), Qt.AlignCenter)
-			self._set_item(row_index, 1, log_item.get("customer_name", ""), Qt.AlignCenter)
-			self._set_item(row_index, 2, self._status_value(log_item.get("old_status", "")), Qt.AlignCenter)
-			self._set_item(row_index, 3, self._status_value(log_item.get("new_status", "")), Qt.AlignCenter)
-			self._set_item(row_index, 4, log_item.get("changed_by", ""), Qt.AlignCenter)
-			self._set_item(row_index, 5, log_item.get("changed_at", ""), Qt.AlignCenter)
+			self._logs_lay.addWidget(self._build_log_row(log_item, row_index))
 
-		self._table.resizeRowsToContents()
+		self._logs_lay.addStretch()
 
-	def _set_item(self, row, column, value, alignment):
-		item = QTableWidgetItem(str(value))
-		item.setFont(inter(11))
-		item.setTextAlignment(alignment)
-		self._table.setItem(row, column, item)
+	def _clear_log_rows(self):
+		while self._logs_lay.count():
+			item = self._logs_lay.takeAt(0)
+			widget = item.widget()
+			if widget is not None:
+				widget.deleteLater()
+
+	def _build_log_row(self, log_item, row_index):
+		row = QFrame()
+		row.setObjectName("DeliveryLogRow")
+		row.setCursor(Qt.PointingHandCursor)
+		row.setFixedHeight(58)
+		row.setStyleSheet(
+			f"""
+			QFrame#DeliveryLogRow {{
+				background:#fbfdfc;
+				border:1px solid {GRAY_2};
+				border-radius:6px;
+			}}
+			QFrame#DeliveryLogRow:hover {{
+				background:#eef8f6;
+				border-color:#c9ddd9;
+			}}
+			"""
+		)
+		row.mouseDoubleClickEvent = lambda event, index=row_index: self._open_log_details(index)
+
+		lay = QHBoxLayout(row)
+		lay.setContentsMargins(14, 0, 14, 0)
+		lay.setSpacing(14)
+
+		old_status = self._status_value(log_item.get("old_status", ""))
+		new_status = self._status_value(log_item.get("new_status", ""))
+
+		lay.addWidget(self._log_cell(log_item.get("delivery_id", ""), 112, TEAL_DARK, QFont.Medium))
+		lay.addWidget(self._log_cell(log_item.get("customer_name", ""), None, GRAY_5), 1)
+		lay.addWidget(
+			self._log_cell(
+				f"{old_status} to {new_status}",
+				210,
+				self._status_color(new_status),
+				QFont.Medium,
+			)
+		)
+		lay.addWidget(self._log_cell(log_item.get("changed_by", ""), 170, GRAY_5))
+		lay.addWidget(self._log_cell(log_item.get("changed_at", ""), 220, GRAY_4))
+		return row
+
+	def _log_cell(self, value, width=None, color=GRAY_5, weight=QFont.Normal):
+		label = QLabel(str(value or "-"))
+		label.setFont(inter(11, weight))
+		label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		label.setStyleSheet(f"color:{color};background:transparent;border:none;")
+		label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+		if width is not None:
+			label.setFixedWidth(width)
+		return label
+
+	@staticmethod
+	def _status_color(status):
+		status_lower = str(status or "").strip().lower()
+		if status_lower == "delivered":
+			return "#087443"
+		if status_lower == "cancelled":
+			return "#a70000"
+		if status_lower == "pending":
+			return "#9a5c00"
+		if status_lower == "in transit":
+			return TEAL_DARK
+		return GRAY_5
 
 	@staticmethod
 	def _status_value(value, fallback="-"):
 		text = str(value or "").strip()
 		return text or fallback
 
-	def _on_row_clicked(self, row, _column):
+	def _open_log_details(self, row):
 		if row < 0 or row >= len(self._filtered_logs):
 			return
 		dialog = DeliveryLogDetailsDialog(self._filtered_logs[row], self)

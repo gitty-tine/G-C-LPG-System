@@ -27,6 +27,8 @@ class ReportController(QObject):
             live_summary = ReportModel.get_summary(date_from, date_to) or {}
             snapshot_summary = self._snapshot_summary_for_period(period_name, date_from, date_to)
             summary = self._merge_summaries(live_summary, snapshot_summary)
+            insights = ReportModel.get_report_insights(date_from, date_to) or {}
+            summary = {**summary, **insights}
             breakdown = ReportModel.get_detailed_breakdown(date_from, date_to) or []
             payload = self._build_payload(period_name, summary, breakdown)
 
@@ -42,29 +44,64 @@ class ReportController(QObject):
     def _snapshot_summary_for_period(self, period_name, date_from, date_to):
         period_key = str(period_name or "").strip().lower()
         if period_key == "daily" and self._is_completed_daily_range(date_to):
-            return ReportModel.get_daily_snapshot_summary(date_from, date_to) or {}
+            summary = ReportModel.get_daily_snapshot_summary(date_from, date_to) or {}
+            return summary if self._has_complete_snapshot(summary, self._day_count(date_from, date_to)) else {}
         if (
             period_key == "weekly"
             and self._is_full_week_range(date_from, date_to)
             and self._is_completed_week_range(date_to)
         ):
-            return ReportModel.get_weekly_snapshot_summary(date_from, date_to) or {}
+            summary = ReportModel.get_weekly_snapshot_summary(date_from, date_to) or {}
+            return summary if self._has_complete_snapshot(summary, self._week_count(date_from, date_to)) else {}
         if (
             period_key == "monthly"
             and self._is_full_month_range(date_from, date_to)
             and self._is_completed_month_range(date_to)
         ):
-            return ReportModel.get_monthly_snapshot_summary(date_from, date_to) or {}
+            summary = ReportModel.get_monthly_snapshot_summary(date_from, date_to) or {}
+            return summary if self._has_complete_snapshot(summary, self._month_count(date_from, date_to)) else {}
         return {}
 
     def _merge_summaries(self, live_summary, snapshot_summary):
         if not snapshot_summary:
             return live_summary
         merged = dict(live_summary or {})
-        for key in ("total_deliveries", "total_delivered", "total_cancelled", "total_pending", "total_sales"):
+        for key in (
+            "total_deliveries",
+            "total_delivered",
+            "total_cancelled",
+            "total_pending",
+            "total_in_transit",
+            "total_sales",
+            "total_paid",
+            "total_unpaid",
+        ):
             if key in snapshot_summary and snapshot_summary.get(key) is not None:
                 merged[key] = snapshot_summary.get(key)
         return merged
+
+    def _has_complete_snapshot(self, summary, expected_count):
+        if expected_count <= 0:
+            return False
+        return int(summary.get("snapshot_count", 0) or 0) >= expected_count
+
+    def _day_count(self, date_from, date_to):
+        return (date_to - date_from).days + 1
+
+    def _week_count(self, date_from, date_to):
+        return max(1, self._day_count(date_from, date_to) // 7)
+
+    def _month_count(self, date_from, date_to):
+        count = 0
+        current = date_from.replace(day=1)
+        end = date_to.replace(day=1)
+        while current <= end:
+            count += 1
+            if current.month == 12:
+                current = current.replace(year=current.year + 1, month=1)
+            else:
+                current = current.replace(month=current.month + 1)
+        return count
 
     def _is_full_week_range(self, date_from, date_to):
         return date_from.weekday() == 0 and date_to.weekday() == 6
@@ -128,6 +165,11 @@ class ReportController(QObject):
                 "total_paid": float(summary.get("total_paid", 0) or 0),
                 "total_unpaid": float(summary.get("total_unpaid", 0) or 0),
                 "avg_transaction_value": float(summary.get("avg_transaction_value", 0) or 0),
+                "peak_sales_day": summary.get("peak_sales_day", ""),
+                "peak_sales_amount": float(summary.get("peak_sales_amount", 0) or 0),
+                "most_sold_product": summary.get("most_sold_product", ""),
+                "most_sold_product_quantity": int(summary.get("most_sold_product_quantity", 0) or 0),
+                "most_sold_product_revenue": float(summary.get("most_sold_product_revenue", 0) or 0),
             },
             "rows": normalized_rows,
         }

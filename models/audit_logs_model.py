@@ -1,9 +1,50 @@
+import re
+
 from database.connection import get_connection
 
 
+_AUDIT_FIELD_PATTERN = re.compile(r"(?:(?<=^)|(?<=, ))([A-Za-z][A-Za-z ]{0,40}):\s*")
+
+
+def _audit_field_names(*values):
+    names = []
+    for value in values:
+        if not value:
+            continue
+        for match in _AUDIT_FIELD_PATTERN.finditer(str(value)):
+            name = match.group(1).strip()
+            if name and name not in names:
+                names.append(name)
+    return names
+
+
+def _human_join(items):
+    if not items:
+        return ""
+    if len(items) == 1:
+        return items[0]
+    if len(items) == 2:
+        return f"{items[0]} and {items[1]}"
+    return f"{', '.join(items[:-1])}, and {items[-1]}"
+
+
 class AuditLogModel:
+    ACTION_LABEL_TO_RAW = {
+        "Added": "INSERT",
+        "Updated": "UPDATE",
+        "Deleted": "DELETE",
+    }
+
+    SECTION_LABEL_TO_RAW = {
+        "Customers": "customers",
+        "LPG Products": "lpg_products",
+        "Deliveries": "deliveries",
+        "Transactions": "transactions",
+        "Users": "users",
+    }
+
     @staticmethod
-    def get_all(date_from=None, date_to=None):
+    def get_logs(action=None, section=None, date_from=None, date_to=None):
         conn = None
         cursor = None
         try:
@@ -77,14 +118,31 @@ class AuditLogModel:
                 INNER JOIN users u ON u.id = a.user_id
             """
 
+            clauses = []
             params = []
+
+            raw_action = AuditLogModel.ACTION_LABEL_TO_RAW.get(action, action)
+            if raw_action and str(raw_action).lower() != "all activities":
+                clauses.append("a.action = %s")
+                params.append(raw_action)
+
+            raw_section = AuditLogModel.SECTION_LABEL_TO_RAW.get(section, section)
+            if raw_section and str(raw_section).lower() != "all sections":
+                clauses.append("a.table_name = %s")
+                params.append(str(raw_section).lower())
+
             if date_from and date_to:
-                query += " WHERE DATE(a.changed_at) BETWEEN %s AND %s"
+                clauses.append("a.changed_at >= %s AND a.changed_at < DATE_ADD(%s, INTERVAL 1 DAY)")
                 params.extend([date_from, date_to])
 
-            query += " ORDER BY a.changed_at DESC"
+            if clauses:
+                query += " WHERE " + " AND ".join(clauses)
+
+            query += " ORDER BY a.changed_at DESC, a.id DESC"
             cursor.execute(query, tuple(params) if params else None)
-            return cursor.fetchall()
+            rows = cursor.fetchall()
+            AuditLogModel._apply_change_summaries(rows)
+            return rows
         finally:
             if cursor:
                 cursor.close()
@@ -92,184 +150,21 @@ class AuditLogModel:
                 conn.close()
 
     @staticmethod
-    def get_by_action(action_label, date_from=None, date_to=None):
-        action_map = {
-            "Added": "INSERT",
-            "Updated": "UPDATE",
-            "Deleted": "DELETE",
-        }
-        raw_action = action_map.get(action_label, action_label)
-
-        conn = None
-        cursor = None
-        try:
-            conn = get_connection()
-            cursor = conn.cursor(dictionary=True)
-
-            query = """
-                SELECT
-                    a.id,
-                    a.action                                          AS raw_action,
-                    a.table_name                                      AS raw_table,
-                    a.record_id,
-                    COALESCE(a.old_value, '-')                        AS old_value,
-                    COALESCE(a.new_value, '-')                        AS new_value,
-                    DATE_FORMAT(a.changed_at, '%b %d, %Y %h:%i %p')   AS changed_at,
-                    a.changed_at                                      AS changed_at_raw,
-                    TRIM(u.full_name)                                 AS changed_by,
-                    u.role                                            AS changed_by_role,
-                    CASE a.action
-                        WHEN 'INSERT' THEN 'Added'
-                        WHEN 'UPDATE' THEN 'Updated'
-                        WHEN 'DELETE' THEN 'Deleted'
-                        ELSE a.action
-                    END                                               AS activity_type,
-                    CASE a.table_name
-                        WHEN 'customers'    THEN 'Customers'
-                        WHEN 'lpg_products' THEN 'LPG Products'
-                        WHEN 'deliveries'   THEN 'Deliveries'
-                        WHEN 'transactions' THEN 'Transactions'
-                        WHEN 'users'        THEN 'Users'
-                        ELSE a.table_name
-                    END                                               AS section_name
-                FROM audit_logs a
-                INNER JOIN users u ON u.id = a.user_id
-                WHERE a.action = %s
-            """
-
-            params = [raw_action]
-            if date_from and date_to:
-                query += " AND DATE(a.changed_at) BETWEEN %s AND %s"
-                params.extend([date_from, date_to])
-
-            query += " ORDER BY a.changed_at DESC"
-            cursor.execute(query, tuple(params))
-            return cursor.fetchall()
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
+    def get_all(date_from=None, date_to=None):
+        return AuditLogModel.get_logs(date_from=date_from, date_to=date_to)
 
     @staticmethod
-    def get_by_section(section_label, date_from=None, date_to=None):
-        section_map = {
-            "Customers": "customers",
-            "LPG Products": "lpg_products",
-            "Deliveries": "deliveries",
-            "Transactions": "transactions",
-            "Users": "users",
-        }
-        raw_table = section_map.get(section_label, section_label.lower())
+    def _apply_change_summaries(rows):
+        for row in rows:
+            if row.get("raw_action") != "UPDATE":
+                continue
 
-        conn = None
-        cursor = None
-        try:
-            conn = get_connection()
-            cursor = conn.cursor(dictionary=True)
+            fields = _audit_field_names(row.get("old_value"), row.get("new_value"))
+            if not fields:
+                continue
 
-            query = """
-                SELECT
-                    a.id,
-                    a.action                                          AS raw_action,
-                    a.table_name                                      AS raw_table,
-                    a.record_id,
-                    COALESCE(a.old_value, '-')                        AS old_value,
-                    COALESCE(a.new_value, '-')                        AS new_value,
-                    DATE_FORMAT(a.changed_at, '%b %d, %Y %h:%i %p')   AS changed_at,
-                    a.changed_at                                      AS changed_at_raw,
-                    TRIM(u.full_name)                                 AS changed_by,
-                    u.role                                            AS changed_by_role,
-                    CASE a.action
-                        WHEN 'INSERT' THEN 'Added'
-                        WHEN 'UPDATE' THEN 'Updated'
-                        WHEN 'DELETE' THEN 'Deleted'
-                        ELSE a.action
-                    END                                               AS activity_type,
-                    CASE a.table_name
-                        WHEN 'customers'    THEN 'Customers'
-                        WHEN 'lpg_products' THEN 'LPG Products'
-                        WHEN 'deliveries'   THEN 'Deliveries'
-                        WHEN 'transactions' THEN 'Transactions'
-                        WHEN 'users'        THEN 'Users'
-                        ELSE a.table_name
-                    END                                               AS section_name
-                FROM audit_logs a
-                INNER JOIN users u ON u.id = a.user_id
-                WHERE a.table_name = %s
-            """
-
-            params = [raw_table]
-            if date_from and date_to:
-                query += " AND DATE(a.changed_at) BETWEEN %s AND %s"
-                params.extend([date_from, date_to])
-
-            query += " ORDER BY a.changed_at DESC"
-            cursor.execute(query, tuple(params))
-            return cursor.fetchall()
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
-
-    @staticmethod
-    def get_distinct_sections():
-        conn = None
-        cursor = None
-        try:
-            conn = get_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute(
-                """
-                SELECT DISTINCT
-                    CASE table_name
-                        WHEN 'customers'    THEN 'Customers'
-                        WHEN 'lpg_products' THEN 'LPG Products'
-                        WHEN 'deliveries'   THEN 'Deliveries'
-                        WHEN 'transactions' THEN 'Transactions'
-                        WHEN 'users'        THEN 'Users'
-                        ELSE table_name
-                    END AS section_name
-                FROM audit_logs
-                ORDER BY section_name ASC
-                """
-            )
-            return [row["section_name"] for row in cursor.fetchall()]
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
-
-    @staticmethod
-    def get_activity_counts():
-        conn = None
-        cursor = None
-        try:
-            conn = get_connection()
-            cursor = conn.cursor(dictionary=True)
-            cursor.execute(
-                """
-                SELECT
-                    CASE action
-                        WHEN 'INSERT' THEN 'Added'
-                        WHEN 'UPDATE' THEN 'Updated'
-                        WHEN 'DELETE' THEN 'Deleted'
-                        ELSE action
-                    END AS activity_type,
-                    COUNT(*) AS total
-                FROM audit_logs
-                GROUP BY action
-                ORDER BY total DESC
-                """
-            )
-            return cursor.fetchall()
-        finally:
-            if cursor:
-                cursor.close()
-            if conn:
-                conn.close()
+            row["changed_fields"] = fields
+            row["description"] = f"{_human_join(fields)} changed"
 
 
 AuditLogsModel = AuditLogModel

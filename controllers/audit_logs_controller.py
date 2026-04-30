@@ -17,9 +17,14 @@ class AuditLogsController:
         self._view = view
         return self
 
-    def load(self):
+    def load(self, action=None, section=None, date_from=None, date_to=None):
         try:
-            logs = self._model.get_all()
+            logs = self._model.get_logs(
+                action=action,
+                section=section,
+                date_from=date_from,
+                date_to=date_to,
+            )
             if self._view:
                 self._view.load_logs(logs)
             return True, logs

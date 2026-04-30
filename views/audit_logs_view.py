@@ -1,4 +1,5 @@
 import os
+import re
 import sys
 
 from PySide6.QtCore import Qt, QTimer, QDate, QTime
@@ -8,18 +9,14 @@ from PySide6.QtWidgets import (
 	QWidget,
 	QHBoxLayout,
 	QVBoxLayout,
+	QGridLayout,
 	QLabel,
 	QFrame,
 	QScrollArea,
 	QSizePolicy,
-	QLineEdit,
 	QComboBox,
-	QTableWidget,
-	QTableWidgetItem,
-	QHeaderView,
-	QAbstractItemView,
 	QDialog,
-	QDialogButtonBox,
+	QPushButton,
 	QDateEdit,
 	QStackedWidget,
 	QCalendarWidget,
@@ -65,6 +62,57 @@ CALENDAR_MONTH_YEAR_FONT_FAMILY = INTER_FAMILY
 CALENDAR_MONTH_YEAR_FONT_SIZE = 14
 CALENDAR_MONTH_YEAR_FONT_WEIGHT_CSS = 600
 CALENDAR_MONTH_YEAR_FONT_WEIGHT_QT = QFont.DemiBold
+
+_AUDIT_FIELD_PATTERN = re.compile(r"(?:(?<=^)|(?<=, ))([A-Za-z][A-Za-z ]{0,40}):\s*")
+
+
+def _clean_audit_value(value):
+	if value is None:
+		return "-"
+	text = " ".join(str(value).replace("\r", " ").replace("\n", " ").split())
+	if not text or text.lower() in {"none", "null"}:
+		return "-"
+	return text
+
+
+def _parse_audit_fields(value):
+	text = _clean_audit_value(value)
+	if text == "-":
+		return []
+
+	matches = list(_AUDIT_FIELD_PATTERN.finditer(text))
+	if not matches:
+		return []
+
+	fields = []
+	for index, match in enumerate(matches):
+		label = match.group(1).strip()
+		start = match.end()
+		end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+		field_value = text[start:end].strip().rstrip(",").strip()
+		fields.append((label, field_value or "-"))
+	return fields
+
+
+def _audit_change_rows(old_value, new_value):
+	old_fields = _parse_audit_fields(old_value)
+	new_fields = _parse_audit_fields(new_value)
+	if not old_fields and not new_fields:
+		return []
+
+	old_map = {label: value for label, value in old_fields}
+	new_map = {label: value for label, value in new_fields}
+	labels = []
+	for label, _ in old_fields + new_fields:
+		if label not in labels:
+			labels.append(label)
+
+	rows = []
+	for label in labels:
+		before = old_map.get(label, "-")
+		after = new_map.get(label, "-")
+		rows.append((label, before, after, before != after))
+	return rows
 
 
 def load_fonts():
@@ -395,72 +443,281 @@ def _attach_year_dropdown(calendar):
 class AuditLogDetailsDialog(QDialog):
 	def __init__(self, log_item, parent=None):
 		super().__init__(parent)
+		self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.CustomizeWindowHint)
+		self.setAttribute(Qt.WA_TranslucentBackground, True)
 		self.setWindowTitle("Audit Log Details")
 		self.setModal(True)
-		self.setMinimumWidth(520)
+		self.setMinimumWidth(760)
 		self.setStyleSheet(
 			f"""
-			QDialog {{ background:{WHITE}; }}
+			QDialog {{ background:transparent; }}
 			QLabel {{ color:{GRAY_5}; background:transparent; border:none; }}
+			QFrame#DialogSurface {{
+				background:#f8faf9;
+				border:1px solid #d8e2e0;
+				border-radius:12px;
+			}}
 			QFrame#Card {{
+				background:transparent;
+				border:none;
+				border-radius:0;
+			}}
+			QFrame#Panel {{
 				background:{WHITE};
 				border:1px solid {GRAY_2};
+				border-radius:10px;
+			}}
+			QFrame#Summary {{
+				background:{TEAL_PALE};
+				border:1px solid #c9e4df;
 				border-radius:8px;
-			}}"""
+			}}
+			QFrame#ChangeTable {{
+				background:#fbfcfc;
+				border:1px solid {GRAY_2};
+				border-radius:8px;
+			}}
+			QFrame#ChangedRow {{
+				background:#f3faf8;
+				border:1px solid #d8ebe7;
+				border-radius:6px;
+			}}
+			QFrame#UnchangedRow {{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:6px;
+			}}
+			QPushButton {{
+				background:{TEAL};
+				color:{WHITE};
+				border:none;
+				border-radius:7px;
+				padding:9px 22px;
+				font-family:'{INTER_FAMILY}';
+				font-size:12px;
+				font-weight:600;
+			}}
+			QPushButton:hover {{ background:{TEAL_DARK}; }}
+			"""
 		)
 
 		root = QVBoxLayout(self)
-		root.setContentsMargins(20, 20, 20, 20)
+		root.setContentsMargins(0, 0, 0, 0)
 		root.setSpacing(0)
+
+		surface = QFrame()
+		surface.setObjectName("DialogSurface")
+		surface_lay = QVBoxLayout(surface)
+		surface_lay.setContentsMargins(22, 20, 22, 18)
+		surface_lay.setSpacing(14)
+		root.addWidget(surface)
 
 		card = QFrame()
 		card.setObjectName("Card")
 		card_lay = QVBoxLayout(card)
-		card_lay.setContentsMargins(20, 20, 20, 20)
-		card_lay.setSpacing(12)
+		card_lay.setContentsMargins(0, 0, 0, 0)
+		card_lay.setSpacing(16)
 
-		title = QLabel("Audit Log Entry")
-		title.setFont(playfair(18, QFont.Medium))
+		header = QHBoxLayout()
+		header.setSpacing(12)
+		title_col = QVBoxLayout()
+		title_col.setSpacing(4)
+
+		title = QLabel("Audit Log Details")
+		title.setFont(playfair(20, QFont.Medium))
 		title.setStyleSheet(f"color:{TEAL_DARK};")
-		card_lay.addWidget(title)
 
-		fields = [
-			("Activity", log_item.get("activity_type", "")),
-			("Section", log_item.get("section_name", "")),
-			("What Changed", log_item.get("description", "")),
-			("Before", log_item.get("old_value", "")),
-			("After", log_item.get("new_value", "")),
-			("Done By", log_item.get("changed_by", "")),
-			("When", log_item.get("changed_at", "")),
+		subtitle = QLabel("Read-only record of a database change.")
+		subtitle.setFont(inter(11))
+		subtitle.setStyleSheet(f"color:{GRAY_4};")
+
+		title_col.addWidget(title)
+		title_col.addWidget(subtitle)
+
+		badge = QLabel(log_item.get("activity_type", "Activity"))
+		badge.setFont(inter(10, QFont.DemiBold))
+		badge.setAlignment(Qt.AlignCenter)
+		badge.setFixedHeight(28)
+		badge.setMinimumWidth(86)
+		badge.setStyleSheet(self._badge_style(log_item.get("activity_type", "")))
+
+		header.addLayout(title_col)
+		header.addStretch()
+		header.addWidget(badge)
+		card_lay.addLayout(header)
+
+		summary = QFrame()
+		summary.setObjectName("Summary")
+		summary_lay = QHBoxLayout(summary)
+		summary_lay.setContentsMargins(16, 14, 16, 14)
+		summary_lay.setSpacing(18)
+
+		summary_lay.addLayout(
+			self._summary_block(
+				"Affected record",
+				f"{log_item.get('section_name', 'Record')} #{log_item.get('record_id', '-')}",
+			)
+		)
+		summary_lay.addStretch()
+		summary_lay.addLayout(
+			self._summary_block(
+				"What happened",
+				log_item.get("description", "Record changed"),
+				align_right=True,
+			)
+		)
+		card_lay.addWidget(summary)
+
+		meta = QFrame()
+		meta.setObjectName("Panel")
+		meta_grid = QGridLayout(meta)
+		meta_grid.setContentsMargins(16, 14, 16, 14)
+		meta_grid.setHorizontalSpacing(28)
+		meta_grid.setVerticalSpacing(12)
+
+		meta_items = [
+			("Section", log_item.get("section_name", "-")),
+			("Record ID", log_item.get("record_id", "-")),
+			("Done by", log_item.get("changed_by", "-")),
+			("When", log_item.get("changed_at", "-")),
 		]
+		for index, (label_text, value) in enumerate(meta_items):
+			row = index // 2
+			col = index % 2
+			meta_grid.addLayout(self._meta_block(label_text, value), row, col)
+		card_lay.addWidget(meta)
 
-		for label_text, value in fields:
-			field_frame = QFrame()
-			field_frame.setStyleSheet(f"background:transparent;border:none;")
-			field_lay = QVBoxLayout(field_frame)
-			field_lay.setContentsMargins(0, 0, 0, 0)
-			field_lay.setSpacing(4)
+		changes_title = QLabel("Changed Data")
+		changes_title.setFont(inter(11, QFont.DemiBold))
+		changes_title.setStyleSheet(f"color:{GRAY_4};letter-spacing:1px;")
+		card_lay.addWidget(changes_title)
 
-			label = QLabel(label_text)
-			label.setFont(inter(10, QFont.Medium))
-			label.setStyleSheet(f"color:{GRAY_4};letter-spacing:0.5px;")
+		change_rows = _audit_change_rows(log_item.get("old_value"), log_item.get("new_value"))
+		if change_rows:
+			card_lay.addWidget(self._build_change_table(change_rows))
+		else:
+			card_lay.addWidget(
+				self._build_raw_change_table(
+					_clean_audit_value(log_item.get("old_value")),
+					_clean_audit_value(log_item.get("new_value")),
+				)
+			)
 
-			value_label = QLabel(str(value))
-			value_label.setFont(inter(11))
-			value_label.setWordWrap(True)
-			value_label.setStyleSheet(f"color:{GRAY_5};")
+		surface_lay.addWidget(card)
 
-			field_lay.addWidget(label)
-			field_lay.addWidget(value_label)
-			card_lay.addLayout(field_lay)
+		btn_row = QHBoxLayout()
+		btn_row.addStretch()
 
-		root.addWidget(card)
-		root.addSpacing(20)
+		close_btn = QPushButton("Close")
+		close_btn.setCursor(Qt.PointingHandCursor)
+		close_btn.setFont(inter(10, QFont.Medium))
+		close_btn.setFixedSize(92, 34)
+		close_btn.clicked.connect(self.accept)
+		btn_row.addWidget(close_btn)
+		surface_lay.addLayout(btn_row)
 
-		buttons = QDialogButtonBox(QDialogButtonBox.Close)
-		buttons.rejected.connect(self.reject)
-		buttons.accepted.connect(self.accept)
-		root.addWidget(buttons)
+	def _summary_block(self, label_text, value, align_right=False):
+		layout = QVBoxLayout()
+		layout.setContentsMargins(0, 0, 0, 0)
+		layout.setSpacing(3)
+		alignment = Qt.AlignRight if align_right else Qt.AlignLeft
+
+		label = QLabel(label_text)
+		label.setFont(inter(9, QFont.DemiBold))
+		label.setAlignment(alignment)
+		label.setStyleSheet(f"color:{GRAY_4};letter-spacing:1px;")
+
+		value_label = QLabel(str(value))
+		value_label.setFont(inter(14, QFont.DemiBold))
+		value_label.setAlignment(alignment)
+		value_label.setWordWrap(True)
+		value_label.setStyleSheet(f"color:{TEAL_DARK};")
+
+		layout.addWidget(label)
+		layout.addWidget(value_label)
+		return layout
+
+	def _meta_block(self, label_text, value):
+		layout = QVBoxLayout()
+		layout.setContentsMargins(0, 0, 0, 0)
+		layout.setSpacing(3)
+
+		label = QLabel(label_text)
+		label.setFont(inter(9, QFont.DemiBold))
+		label.setStyleSheet(f"color:{GRAY_4};letter-spacing:0.7px;")
+
+		value_label = QLabel(str(value))
+		value_label.setFont(inter(11, QFont.Medium))
+		value_label.setWordWrap(True)
+		value_label.setStyleSheet(f"color:{GRAY_5};")
+
+		layout.addWidget(label)
+		layout.addWidget(value_label)
+		return layout
+
+	def _build_change_table(self, rows):
+		table = QFrame()
+		table.setObjectName("ChangeTable")
+		layout = QGridLayout(table)
+		layout.setContentsMargins(12, 12, 12, 12)
+		layout.setHorizontalSpacing(10)
+		layout.setVerticalSpacing(8)
+		layout.setColumnStretch(0, 1)
+		layout.setColumnStretch(1, 2)
+		layout.setColumnStretch(2, 2)
+
+		for column, text in enumerate(("Field", "Before", "After")):
+			header = QLabel(text)
+			header.setFont(inter(9, QFont.DemiBold))
+			header.setStyleSheet(f"color:{GRAY_4};letter-spacing:0.7px;")
+			layout.addWidget(header, 0, column)
+
+		for row_index, (field, before, after, changed) in enumerate(rows, start=1):
+			row_name = "ChangedRow" if changed else "UnchangedRow"
+			for column, value in enumerate((field, before, after)):
+				cell = QFrame()
+				cell.setObjectName(row_name)
+				cell_lay = QVBoxLayout(cell)
+				cell_lay.setContentsMargins(10, 8, 10, 8)
+				cell_lay.setSpacing(0)
+
+				label = QLabel(str(value))
+				label.setFont(inter(10, QFont.DemiBold if column == 0 else QFont.Normal))
+				label.setWordWrap(True)
+				if changed and column == 2:
+					color = TEAL_DARK
+				elif changed and column == 1:
+					color = AMBER
+				else:
+					color = GRAY_5
+				label.setStyleSheet(f"color:{color};")
+
+				cell_lay.addWidget(label)
+				layout.addWidget(cell, row_index, column)
+
+		return table
+
+	def _build_raw_change_table(self, before, after):
+		return self._build_change_table([
+			("Complete value", before, after, before != after),
+		])
+
+	def _badge_style(self, activity_type):
+		if activity_type == "Added":
+			bg, fg, border = GREEN_BG, GREEN, "#b9dcc7"
+		elif activity_type == "Updated":
+			bg, fg, border = AMBER_BG, AMBER, "#efd290"
+		elif activity_type == "Deleted":
+			bg, fg, border = RED_BG, RED, "#efb8b8"
+		else:
+			bg, fg, border = TEAL_PALE, TEAL_DARK, "#c9e4df"
+		return f"""
+			background:{bg};
+			color:{fg};
+			border:1px solid {border};
+			border-radius:14px;
+			padding:0 12px;
+		"""
 
 
 class AuditLogsView(QWidget):
@@ -470,12 +727,17 @@ class AuditLogsView(QWidget):
 		self._all_logs = []
 		self._filtered_logs = []
 		self._controller = None
+		self._last_logs_signature = None
+		self._last_filter_signature = None
+		self._live_refresh = QTimer(self)
+		self._live_refresh.setInterval(1000)
+		self._live_refresh.timeout.connect(self._refresh_live)
 
 		load_fonts()
 		self.setStyleSheet(f"background:{GRAY_1};")
 		self._build_ui()
 		self._populate_filters()
-		self._render_table()
+		self._render_logs()
 		if controller:
 			self.bind_controller(controller, request_initial=True)
 
@@ -510,7 +772,7 @@ class AuditLogsView(QWidget):
 		title.setFont(playfair(28, QFont.Medium))
 		title.setStyleSheet(f"color:{TEAL_DARK};")
 
-		desc = QLabel("View all system records—view-only audit trail of database changes.")
+		desc = QLabel("View all system records - view-only audit trail of database changes.")
 		desc.setFont(inter(12))
 		desc.setStyleSheet(f"color:{GRAY_4};")
 
@@ -519,8 +781,36 @@ class AuditLogsView(QWidget):
 		top.addWidget(desc)
 		content_lay.addLayout(top)
 
+		summary_row = QHBoxLayout()
+		summary_row.setContentsMargins(0, 4, 0, 0)
+		summary_row.setSpacing(12)
+
+		visible_card, self._visible_logs_lbl = self._summary_card(
+			"VISIBLE LOGS",
+			"0",
+			"Matching current filters",
+			TEAL,
+		)
+		sections_card, self._sections_touched_lbl = self._summary_card(
+			"SECTIONS AFFECTED",
+			"0",
+			"Unique system areas",
+			TEAL_DARK,
+		)
+		latest_card, self._latest_activity_lbl = self._summary_card(
+			"LATEST ACTIVITY",
+			"-",
+			"Most recent visible log",
+			GRAY_5,
+		)
+		summary_row.addWidget(visible_card, 1)
+		summary_row.addWidget(sections_card, 1)
+		summary_row.addWidget(latest_card, 2)
+		content_lay.addLayout(summary_row)
+
 		# Filter bar
 		filter_row = QHBoxLayout()
+		filter_row.setContentsMargins(0, 4, 0, 2)
 		filter_row.setSpacing(10)
 
 		self._filter_action_type = QComboBox()
@@ -576,99 +866,7 @@ class AuditLogsView(QWidget):
 		filter_row.addWidget(self._date_to)
 		content_lay.addLayout(filter_row)
 
-		# Table (7 columns)
-		self._table = QTableWidget(0, 7)
-		self._table.setHorizontalHeaderLabels([
-			"ACTIVITY",
-			"SECTION",
-			"WHAT CHANGED",
-			"BEFORE",
-			"AFTER",
-			"DONE BY",
-			"WHEN",
-		])
-		self._table.verticalHeader().setVisible(False)
-		self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-		self._table.setSelectionMode(QAbstractItemView.SingleSelection)
-		self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-		self._table.setFocusPolicy(Qt.NoFocus)
-		self._table.setWordWrap(True)
-		self._table.setShowGrid(False)
-		self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-		self._table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-		self._table.setStyleSheet(
-			f"""
-			QTableWidget {{
-				background:{WHITE};
-				border:1px solid {GRAY_2};
-				border-radius:8px;
-				gridline-color:transparent;
-				selection-background-color:{TEAL_PALE};
-				selection-color:{TEAL_DARK};
-			}}
-			QHeaderView::section {{
-				background:#f7f8f8;
-				color:{GRAY_4};
-				border:none;
-				border-bottom:1px solid {GRAY_2};
-				border-right:1px solid {GRAY_2};
-				padding:10px 8px;
-				font-family:'{INTER_FAMILY}';
-				font-size:12px;
-				font-weight:600;
-				letter-spacing:1px;
-			}}
-			QTableWidget::item {{
-				padding:6px 8px;
-				border:none;
-				border-right:1px solid {GRAY_2};
-				color:{GRAY_5};
-			}}
-			QTableWidget::item:selected {{
-				background:{TEAL_PALE};
-				color:{TEAL_DARK};
-				border-right:1px solid {GRAY_2};
-			}}
-			QScrollBar:horizontal {{
-				border:none;
-				background:{GRAY_1};
-				height:6px;
-				margin:0px 0px 0px 0px;
-			}}
-			QScrollBar::handle:horizontal {{
-				background:{TEAL};
-				border-radius:3px;
-				min-width:50px;
-			}}
-			QScrollBar::handle:horizontal:hover {{
-				background:{TEAL_DARK};
-			}}
-			QScrollBar::add-line:horizontal {{
-				border:none;
-				background:none;
-			}}
-			QScrollBar::sub-line:horizontal {{
-				border:none;
-				background:none;
-			}}
-			QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
-				background:none;
-			}}
-			"""
-		)
-		self._table.setStyleSheet(self._table.styleSheet() + owner_scrollbar_qss())
-		self._table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-		self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-		self._table.horizontalHeader().setStretchLastSection(False)
-		self._table.horizontalHeader().setMinimumSectionSize(110)
-		self._table.setColumnWidth(0, 130)
-		self._table.setColumnWidth(1, 150)
-		self._table.setColumnWidth(2, 420)
-		self._table.setColumnWidth(3, 280)
-		self._table.setColumnWidth(4, 280)
-		self._table.setColumnWidth(5, 170)
-		self._table.setColumnWidth(6, 210)
-		self._table.horizontalHeader().setFixedHeight(55)
+		self._logs_card = self._build_logs_card()
 
 		# Empty state
 		self._empty = QWidget()
@@ -710,12 +908,113 @@ class AuditLogsView(QWidget):
 		empty_lay.addWidget(empty_desc)
 
 		self._stack = QStackedWidget()
-		self._stack.addWidget(self._table)
+		self._stack.addWidget(self._logs_card)
 		self._stack.addWidget(self._empty)
 		content_lay.addWidget(self._stack)
 
 		scroll.setWidget(content)
 		root.addWidget(scroll)
+
+	def _summary_card(self, title, value, caption, color):
+		card = QFrame()
+		card.setStyleSheet(
+			f"""
+			QFrame {{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:8px;
+			}}
+			"""
+		)
+		card.setFixedHeight(96)
+		card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+		lay = QVBoxLayout(card)
+		lay.setContentsMargins(18, 12, 18, 12)
+		lay.setSpacing(3)
+
+		title_lbl = QLabel(title)
+		title_lbl.setFont(inter(9, QFont.DemiBold))
+		title_lbl.setStyleSheet(
+			f"color:{GRAY_4};letter-spacing:1.2px;background:transparent;border:none;"
+		)
+
+		value_lbl = QLabel(value)
+		value_lbl.setFont(inter(19, QFont.DemiBold))
+		value_lbl.setMinimumHeight(28)
+		value_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		value_lbl.setStyleSheet(f"color:{color};background:transparent;border:none;")
+
+		caption_lbl = QLabel(caption)
+		caption_lbl.setFont(inter(10))
+		caption_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+		lay.addWidget(title_lbl)
+		lay.addWidget(value_lbl)
+		lay.addWidget(caption_lbl)
+		lay.addStretch()
+		return card, value_lbl
+
+	def _build_logs_card(self):
+		card = QFrame()
+		card.setObjectName("AuditLogsCard")
+		card.setMinimumHeight(540)
+		card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+		card.setStyleSheet(
+			f"""
+			QFrame#AuditLogsCard {{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:8px;
+			}}
+			"""
+		)
+
+		root = QVBoxLayout(card)
+		root.setContentsMargins(0, 0, 0, 0)
+		root.setSpacing(0)
+
+		header = QWidget()
+		header.setFixedHeight(54)
+		header.setStyleSheet(f"background:#f4f8f7;border:none;border-bottom:1px solid {GRAY_2};")
+		header_lay = QHBoxLayout(header)
+		header_lay.setContentsMargins(16, 0, 16, 0)
+		header_lay.setSpacing(14)
+
+		header_lay.addWidget(self._log_header_label("ACTIVITY", 112))
+		header_lay.addWidget(self._log_header_label("SECTION", 150))
+		header_lay.addWidget(self._log_header_label("CHANGE", None), 1)
+		header_lay.addWidget(self._log_header_label("DONE BY", 160))
+		header_lay.addWidget(self._log_header_label("WHEN", 200))
+		header_lay.addWidget(self._log_header_label("", 76))
+		root.addWidget(header)
+
+		self._logs_scroll = QScrollArea()
+		self._logs_scroll.setWidgetResizable(True)
+		self._logs_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		self._logs_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+		self._logs_scroll.setStyleSheet(owner_scrollbar_qss())
+
+		self._logs_list = QWidget()
+		self._logs_list.setStyleSheet("background:transparent;border:none;")
+		self._logs_lay = QVBoxLayout(self._logs_list)
+		self._logs_lay.setContentsMargins(14, 14, 14, 14)
+		self._logs_lay.setSpacing(8)
+
+		self._logs_scroll.setWidget(self._logs_list)
+		root.addWidget(self._logs_scroll)
+		return card
+
+	def _log_header_label(self, text, width=None):
+		label = QLabel(text)
+		label.setFont(inter(10, QFont.DemiBold))
+		label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		label.setStyleSheet(
+			f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;"
+		)
+		if width is not None:
+			label.setFixedWidth(width)
+		return label
 
 	def _configure_date_edit(self, date_edit, min_height=34, min_width=130):
 		date_edit.setStyleSheet(_date_edit_style(min_height=min_height, min_width=min_width))
@@ -748,7 +1047,7 @@ class AuditLogsView(QWidget):
 		prev_btn = calendar.findChild(QToolButton, "qt_calendar_prevmonth")
 		if prev_btn is not None:
 			prev_btn.setIcon(QIcon())
-			prev_btn.setText("‹")
+			prev_btn.setText("<")
 			prev_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
 			prev_btn.setStyleSheet(
 				f"""
@@ -769,7 +1068,7 @@ class AuditLogsView(QWidget):
 		next_btn = calendar.findChild(QToolButton, "qt_calendar_nextmonth")
 		if next_btn is not None:
 			next_btn.setIcon(QIcon())
-			next_btn.setText("›")
+			next_btn.setText(">")
 			next_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
 			next_btn.setStyleSheet(
 				f"""
@@ -842,15 +1141,24 @@ class AuditLogsView(QWidget):
 		super().showEvent(event)
 		if self._controller:
 			self.reload_data()
+			self._live_refresh.start()
 
 	def hideEvent(self, event):
+		self._live_refresh.stop()
 		self._reset_view_state(reload=False)
 		super().hideEvent(event)
+
+	def _refresh_live(self):
+		if self._controller and self.isVisible():
+			self.reload_data()
 
 	def reload_data(self):
 		if not self._controller:
 			return
-		self._controller.load()
+		self._controller.load(
+			date_from=self._date_from.date().toString("yyyy-MM-dd"),
+			date_to=self._date_to.date().toString("yyyy-MM-dd"),
+		)
 
 	def reset_view_state(self):
 		self._reset_view_state(reload=True)
@@ -881,8 +1189,25 @@ class AuditLogsView(QWidget):
 		QMessageBox.critical(self, title, str(message))
 
 	def load_logs(self, logs):
-		self._all_logs = list(logs)
-		self._populate_filters()
+		next_logs = list(logs)
+		signature = tuple(
+			(
+				str(log_item.get("id", "")),
+				str(log_item.get("changed_at_raw", "")),
+				str(log_item.get("old_value", "")),
+				str(log_item.get("new_value", "")),
+			)
+			for log_item in next_logs
+		)
+		filter_signature = self._filter_signature()
+		if signature == self._last_logs_signature and filter_signature == self._last_filter_signature:
+			return
+
+		logs_changed = signature != self._last_logs_signature
+		self._last_logs_signature = signature
+		self._all_logs = next_logs
+		if logs_changed:
+			self._populate_filters()
 		self._apply_filters()
 
 	def _populate_filters(self):
@@ -917,16 +1242,23 @@ class AuditLogsView(QWidget):
 			self._date_to.blockSignals(True)
 			self._date_to.setDate(new_date)
 			self._date_to.blockSignals(False)
-		self._apply_filters()
+		if self._controller:
+			self.reload_data()
+		else:
+			self._apply_filters()
 
 	def _on_date_to_changed(self, new_date):
 		if new_date < self._date_from.date():
 			self._date_from.blockSignals(True)
 			self._date_from.setDate(new_date)
 			self._date_from.blockSignals(False)
-		self._apply_filters()
+		if self._controller:
+			self.reload_data()
+		else:
+			self._apply_filters()
 
 	def _apply_filters(self, *_):
+		self._last_filter_signature = self._filter_signature()
 		wanted_action = self._filter_action_type.currentText().strip().lower()
 		wanted_section = self._filter_section.currentText().strip().lower()
 		date_from = self._date_from.date()
@@ -946,55 +1278,212 @@ class AuditLogsView(QWidget):
 			return date_from <= changed_date <= date_to
 
 		self._filtered_logs = [log_item for log_item in self._all_logs if matches(log_item)]
-		self._render_table()
+		self._update_summary_cards()
+		self._render_logs()
 
-	def _render_table(self):
+	def _filter_signature(self):
+		if not hasattr(self, "_filter_action_type"):
+			return None
+		return (
+			self._filter_action_type.currentText(),
+			self._filter_section.currentText(),
+			self._date_from.date().toString("yyyy-MM-dd"),
+			self._date_to.date().toString("yyyy-MM-dd"),
+		)
+
+	def _open_details(self, row, _column=0):
+		if row < 0 or row >= len(self._filtered_logs):
+			return
+		dialog = AuditLogDetailsDialog(self._filtered_logs[row], self)
+		dialog.exec()
+
+	def _update_summary_cards(self):
+		if not hasattr(self, "_visible_logs_lbl"):
+			return
+
+		visible_count = len(self._filtered_logs)
+		section_count = len(
+			{
+				str(log_item.get("section_name", "")).strip()
+				for log_item in self._filtered_logs
+				if str(log_item.get("section_name", "")).strip()
+			}
+		)
+		latest_activity = "-"
+		if self._filtered_logs:
+			latest = self._filtered_logs[0]
+			latest_activity = str(latest.get("changed_at", "") or "-")
+
+		self._visible_logs_lbl.setText(f"{visible_count:,}")
+		self._sections_touched_lbl.setText(f"{section_count:,}")
+		self._latest_activity_lbl.setText(latest_activity)
+
+	def _render_logs(self):
+		self._clear_log_rows()
 		if not self._filtered_logs:
-			self._table.setRowCount(0)
 			self._stack.setCurrentWidget(self._empty)
 			return
 
-		self._stack.setCurrentWidget(self._table)
-		self._table.setRowCount(len(self._filtered_logs))
+		self._stack.setCurrentWidget(self._logs_card)
 
 		for row_index, log_item in enumerate(self._filtered_logs):
-			activity_type = log_item.get("activity_type", "")
-			self._set_activity_type_item(row_index, 0, activity_type)
-			self._set_item(row_index, 1, log_item.get("section_name", ""), Qt.AlignCenter)
-			self._set_item(row_index, 2, log_item.get("description", ""), Qt.AlignCenter)
-			self._set_item(row_index, 3, log_item.get("old_value", ""), Qt.AlignCenter)
-			self._set_item(row_index, 4, log_item.get("new_value", ""), Qt.AlignCenter)
-			self._set_item(row_index, 5, log_item.get("changed_by", ""), Qt.AlignCenter)
-			self._set_item(row_index, 6, log_item.get("changed_at", ""), Qt.AlignCenter)
+			self._logs_lay.addWidget(self._build_log_row(log_item, row_index))
 
-		# Auto-resize rows to fit all content
-		self._table.resizeRowsToContents()
+		self._logs_lay.addStretch()
 
-	def _set_activity_type_item(self, row, column, activity_type):
-		"""Set activity type cell with colored pill background."""
-		item = QTableWidgetItem(activity_type)
-		item.setFont(inter(11, QFont.DemiBold))
-		item.setTextAlignment(Qt.AlignCenter)
+	def _clear_log_rows(self):
+		if not hasattr(self, "_logs_lay"):
+			return
+		while self._logs_lay.count():
+			item = self._logs_lay.takeAt(0)
+			widget = item.widget()
+			if widget is not None:
+				widget.deleteLater()
 
-		# Color based on activity type
+	def _build_log_row(self, log_item, row_index):
+		row = QFrame()
+		row.setObjectName("AuditLogRow")
+		row.setCursor(Qt.PointingHandCursor)
+		row.setFixedHeight(72)
+		row.setStyleSheet(
+			f"""
+			QFrame#AuditLogRow {{
+				background:#fbfdfc;
+				border:1px solid {GRAY_2};
+				border-radius:6px;
+			}}
+			QFrame#AuditLogRow:hover {{
+				background:#eef8f6;
+				border-color:#c9ddd9;
+			}}
+			"""
+		)
+		row.mouseDoubleClickEvent = lambda event, index=row_index: self._open_details(index)
+
+		lay = QHBoxLayout(row)
+		lay.setContentsMargins(14, 0, 14, 0)
+		lay.setSpacing(14)
+
+		lay.addWidget(self._activity_pill(log_item.get("activity_type", "")))
+		lay.addWidget(self._log_cell(log_item.get("section_name", ""), 150, TEAL_DARK, QFont.Medium))
+		lay.addWidget(self._change_cell(log_item), 1)
+		lay.addWidget(self._log_cell(log_item.get("changed_by", ""), 160, GRAY_5))
+		lay.addWidget(self._log_cell(log_item.get("changed_at", ""), 200, GRAY_4))
+		lay.addWidget(self._details_button(row_index), 76)
+		return row
+
+	def _activity_pill(self, activity_type):
+		bg, fg, border = self._activity_colors(activity_type)
+		pill = QLabel(str(activity_type or "Activity"))
+		pill.setFont(inter(10, QFont.DemiBold))
+		pill.setAlignment(Qt.AlignCenter)
+		pill.setFixedSize(112, 30)
+		pill.setStyleSheet(
+			f"""
+			background:{bg};
+			color:{fg};
+			border:1px solid {border};
+			border-radius:15px;
+			"""
+		)
+		return pill
+
+	def _change_cell(self, log_item):
+		widget = QWidget()
+		widget.setStyleSheet("background:transparent;border:none;")
+		lay = QVBoxLayout(widget)
+		lay.setContentsMargins(0, 0, 0, 0)
+		lay.setSpacing(3)
+
+		title = QLabel(str(log_item.get("description", "") or "Record changed"))
+		title.setFont(inter(11, QFont.DemiBold))
+		title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		title.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+
+		preview = QLabel(self._change_preview(log_item))
+		preview.setFont(inter(10))
+		preview.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		preview.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+		lay.addStretch()
+		lay.addWidget(title)
+		lay.addWidget(preview)
+		lay.addStretch()
+		return widget
+
+	def _log_cell(self, value, width=None, color=GRAY_5, weight=QFont.Normal):
+		label = QLabel(str(value or "-"))
+		label.setFont(inter(11, weight))
+		label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		label.setStyleSheet(f"color:{color};background:transparent;border:none;")
+		label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+		if width is not None:
+			label.setFixedWidth(width)
+		return label
+
+	def _details_button(self, row_index):
+		button = QToolButton()
+		button.setText("View")
+		button.setCursor(Qt.PointingHandCursor)
+		button.setFixedSize(68, 32)
+		button.clicked.connect(lambda _checked=False, index=row_index: self._open_details(index))
+		button.setStyleSheet(
+			f"""
+			QToolButton {{
+				background:{WHITE};
+				color:{TEAL_DARK};
+				border:1px solid #b9d4cf;
+				border-radius:7px;
+				font-family:'{INTER_FAMILY}';
+				font-size:12px;
+				font-weight:600;
+			}}
+			QToolButton:hover {{
+				background:{TEAL_PALE};
+				border-color:{TEAL};
+			}}
+			"""
+		)
+		return button
+
+	def _change_preview(self, log_item):
+		rows = _audit_change_rows(log_item.get("old_value"), log_item.get("new_value"))
+		if rows:
+			changed_rows = [row for row in rows if row[3]]
+			if not changed_rows:
+				changed_rows = rows
+			field, before, after, _changed = changed_rows[0]
+			preview = f"{field}: {before} -> {after}"
+			if len(changed_rows) > 1:
+				preview += f"  +{len(changed_rows) - 1} more"
+			return self._trim_text(preview, 96)
+
+		action = str(log_item.get("raw_action", "")).strip().upper()
+		if action == "INSERT":
+			return self._trim_text(f"Added: {_clean_audit_value(log_item.get('new_value'))}", 96)
+		if action == "DELETE":
+			return self._trim_text(f"Deleted: {_clean_audit_value(log_item.get('old_value'))}", 96)
+		return self._trim_text(
+			f"{_clean_audit_value(log_item.get('old_value'))} -> {_clean_audit_value(log_item.get('new_value'))}",
+			96,
+		)
+
+	@staticmethod
+	def _trim_text(value, limit):
+		text = " ".join(str(value or "-").split())
+		if len(text) <= limit:
+			return text
+		return text[: max(0, limit - 3)].rstrip() + "..."
+
+	@staticmethod
+	def _activity_colors(activity_type):
 		if activity_type == "Added":
-			item.setBackground(QColor(GREEN_BG))
-			item.setForeground(QColor(GREEN))
-		elif activity_type == "Updated":
-			item.setBackground(QColor(AMBER_BG))
-			item.setForeground(QColor(AMBER))
-		elif activity_type == "Deleted":
-			item.setBackground(QColor(RED_BG))
-			item.setForeground(QColor(RED))
-
-		self._table.setItem(row, column, item)
-
-	def _set_item(self, row, column, value, alignment):
-		item = QTableWidgetItem(str(value))
-		item.setFont(inter(11))
-		item.setTextAlignment(alignment | Qt.AlignVCenter)
-		item.setToolTip(str(value))  # Show full text on hover
-		self._table.setItem(row, column, item)
+			return GREEN_BG, GREEN, "#b9dcc7"
+		if activity_type == "Updated":
+			return AMBER_BG, AMBER, "#efd290"
+		if activity_type == "Deleted":
+			return RED_BG, RED, "#efb8b8"
+		return TEAL_PALE, TEAL_DARK, "#c9e4df"
 
 	def _coerce_date(self, changed_at):
 		if not changed_at:

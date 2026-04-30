@@ -6,26 +6,21 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from PySide6.QtCore import Qt, QTimer, QDate, QTime
+from PySide6.QtCore import Qt, QTimer, QDate, QTime, Signal
 from PySide6.QtGui import QFont, QFontDatabase, QColor, QPixmap
 from PySide6.QtWidgets import (
     QApplication,
     QWidget,
     QHBoxLayout,
     QVBoxLayout,
+    QGridLayout,
     QLabel,
     QFrame,
     QScrollArea,
     QSizePolicy,
-    QLineEdit,
     QComboBox,
     QPushButton,
-    QTableWidget,
-    QTableWidgetItem,
-    QHeaderView,
-    QAbstractItemView,
     QDialog,
-    QDialogButtonBox,
     QDateEdit,
     QStackedWidget,
     QCalendarWidget,
@@ -58,6 +53,14 @@ AMBER = "#8a5a00"
 AMBER_BG = "#fef5e0"
 RED = "#8a1a1a"
 RED_BG = "#fdeaea"
+
+TX_CUSTOMER_W = 190
+TX_DELIVERY_W = 125
+TX_PRODUCT_MIN_W = 320
+TX_AMOUNT_W = 135
+TX_PAYMENT_W = 170
+TX_PAID_AT_W = 130
+TX_ACTION_W = 104
 
 PLAYFAIR_FAMILY = "Playfair Display"
 INTER_FAMILY = "Inter"
@@ -96,6 +99,20 @@ def inter(size, weight=QFont.Normal):
     font = QFont(INTER_FAMILY, size)
     font.setWeight(weight)
     return font
+
+
+def trim_text(value, limit):
+    text = " ".join(str(value or "-").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
+
+
+def format_money(value):
+    try:
+        return f"PHP {float(value):,.2f}"
+    except (TypeError, ValueError):
+        return "PHP 0.00"
 
 
 def _qss_path(path):
@@ -340,22 +357,24 @@ class MetricCard(QFrame):
             }}
             """
         )
-        self.setFixedHeight(135)
+        self.setFixedHeight(96)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 14, 16, 12)
-        lay.setSpacing(4)
+        lay.setContentsMargins(18, 12, 18, 12)
+        lay.setSpacing(3)
 
         lbl = QLabel(label)
         lbl.setFont(inter(10, QFont.DemiBold))
         lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.3px;background:transparent;border:none;")
 
         self.value_lbl = QLabel(value)
-        self.value_lbl.setFont(playfair(28, QFont.Medium))
+        self.value_lbl.setFont(inter(19, QFont.DemiBold))
+        self.value_lbl.setMinimumHeight(28)
         self.value_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
         dsc = QLabel(detail)
-        dsc.setFont(inter(11))
+        dsc.setFont(inter(10))
         dsc.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
         lay.addWidget(lbl)
@@ -364,23 +383,48 @@ class MetricCard(QFrame):
         lay.addStretch()
 
 
+class TransactionRow(QFrame):
+    clicked = Signal(object)
+
+    def __init__(self, transaction, parent=None):
+        super().__init__(parent)
+        self._transaction = transaction
+        self.setCursor(Qt.PointingHandCursor)
+
+    def mouseReleaseEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.clicked.emit(self._transaction)
+        super().mouseReleaseEvent(event)
+
+
 class ConfirmPaidDialog(QDialog):
     def __init__(self, transaction, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Confirm Mark as Paid")
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.CustomizeWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setWindowTitle("Confirm Payment")
         self.setModal(True)
-        self.setMinimumWidth(420)
+        self.setMinimumWidth(560)
         self._transaction = transaction
-        self._confirmed = False
 
         self.setStyleSheet(
             f"""
-            QDialog {{ background:{WHITE}; }}
-            QLabel {{ color:{GRAY_5}; }}
+            QDialog {{ background:transparent; }}
+            QLabel {{ color:{GRAY_5}; background:transparent; border:none; }}
+            QFrame#DialogSurface {{
+                background:#f8faf9;
+                border:1px solid #d8e2e0;
+                border-radius:12px;
+            }}
+            QFrame#AmountBand {{
+                background:{TEAL_PALE};
+                border:1px solid #cfe1dd;
+                border-radius:8px;
+            }}
             QPushButton {{
                 min-height:34px;
-                border-radius:4px;
-                padding:0 14px;
+                border-radius:7px;
+                padding:0 16px;
                 font-family:'{INTER_FAMILY}';
                 font-size:11px;
                 font-weight:600;
@@ -389,48 +433,350 @@ class ConfirmPaidDialog(QDialog):
         )
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(22, 20, 22, 18)
-        root.setSpacing(14)
+        root.setContentsMargins(0, 0, 0, 0)
 
-        title = QLabel("Mark this transaction as paid?")
+        surface = QFrame()
+        surface.setObjectName("DialogSurface")
+        surface_lay = QVBoxLayout(surface)
+        surface_lay.setContentsMargins(22, 20, 22, 18)
+        surface_lay.setSpacing(14)
+        root.addWidget(surface)
+
+        title = QLabel("Confirm Payment Collection")
         title.setFont(playfair(18, QFont.Medium))
         title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
-        summary = QLabel(
-            f"{transaction.get('customer_name', '')} - {transaction.get('product_summary', '')}\n"
-            f"Amount: {self._format_amount(transaction.get('total_amount'))}"
+        subtitle = QLabel("This will mark the selected transaction as paid.")
+        subtitle.setFont(inter(11))
+        subtitle.setStyleSheet(f"color:{GRAY_4};")
+
+        surface_lay.addWidget(title)
+        surface_lay.addWidget(subtitle)
+
+        amount_band = QFrame()
+        amount_band.setObjectName("AmountBand")
+        amount_lay = QHBoxLayout(amount_band)
+        amount_lay.setContentsMargins(16, 12, 16, 12)
+
+        amount_label = QLabel("AMOUNT TO COLLECT")
+        amount_label.setFont(inter(10, QFont.DemiBold))
+        amount_label.setStyleSheet(f"color:{GRAY_4};letter-spacing:1px;")
+
+        amount_value = QLabel(format_money(transaction.get("total_amount")))
+        amount_value.setFont(inter(18, QFont.DemiBold))
+        amount_value.setStyleSheet(f"color:{TEAL_DARK};")
+
+        amount_lay.addWidget(amount_label)
+        amount_lay.addStretch()
+        amount_lay.addWidget(amount_value)
+        surface_lay.addWidget(amount_band)
+
+        detail_rows = [
+            ("Customer", transaction.get("customer_name", "")),
+            ("Delivery ID", self._reference(transaction.get("delivery_id", ""))),
+            ("Delivery date", self._date_text(transaction.get("delivery_date"), transaction.get("delivery_date_fmt"))),
+            ("Products", transaction.get("product_summary", "")),
+        ]
+        for label_text, value_text in detail_rows:
+            surface_lay.addWidget(self._detail_row(label_text, value_text))
+
+        buttons = QHBoxLayout()
+        buttons.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setFixedSize(92, 36)
+        cancel_btn.setStyleSheet(
+            f"QPushButton{{background:{WHITE};border:1px solid {GRAY_2};color:{GRAY_5};}}"
+            f"QPushButton:hover{{background:#f1f5f4;}}"
         )
-        summary.setFont(inter(11))
-        summary.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        cancel_btn.clicked.connect(self.reject)
 
-        root.addWidget(title)
-        root.addWidget(summary)
+        confirm_btn = QPushButton("Mark as Paid")
+        confirm_btn.setCursor(Qt.PointingHandCursor)
+        confirm_btn.setFixedSize(120, 36)
+        confirm_btn.setStyleSheet(
+            f"QPushButton{{background:{TEAL};border:1px solid {TEAL};color:{WHITE};}}"
+            f"QPushButton:hover{{background:{TEAL_DARK};border-color:{TEAL_DARK};}}"
+        )
+        confirm_btn.clicked.connect(self.accept)
 
-        buttons = QDialogButtonBox(QDialogButtonBox.No | QDialogButtonBox.Yes)
-        no_btn = buttons.button(QDialogButtonBox.No)
-        yes_btn = buttons.button(QDialogButtonBox.Yes)
-        no_btn.setText("Cancel")
-        yes_btn.setText("Mark as Paid")
-        no_btn.setStyleSheet(f"QPushButton{{background:{WHITE};border:1px solid {GRAY_2};color:{GRAY_5};}}")
-        yes_btn.setStyleSheet(f"QPushButton{{background:{TEAL};border:1px solid {TEAL};color:{WHITE};}}")
-        buttons.rejected.connect(self.reject)
-        buttons.accepted.connect(self.accept)
-        root.addWidget(buttons)
+        buttons.addWidget(cancel_btn)
+        buttons.addWidget(confirm_btn)
+        surface_lay.addLayout(buttons)
 
-    def _format_amount(self, value):
-        try:
-            return f"₱{float(value):,.2f}"
-        except (TypeError, ValueError):
-            return "₱0.00"
+    def _detail_row(self, label_text, value_text):
+        row = QWidget()
+        row.setStyleSheet("background:transparent;border:none;")
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(12)
+
+        label = QLabel(label_text)
+        label.setFont(inter(10, QFont.DemiBold))
+        label.setFixedWidth(104)
+        label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        label.setStyleSheet(f"color:{GRAY_4};letter-spacing:0.4px;")
+
+        value = QLabel(str(value_text or "-"))
+        value.setFont(inter(11, QFont.Medium))
+        value.setWordWrap(True)
+        value.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        value.setStyleSheet(f"color:{GRAY_5};")
+
+        lay.addWidget(label)
+        lay.addWidget(value, 1)
+        return row
+
+    @staticmethod
+    def _reference(value):
+        text = str(value or "").strip()
+        return f"#{text}" if text else "-"
+
+    @staticmethod
+    def _date_text(value, fallback=""):
+        if fallback:
+            return fallback
+        if isinstance(value, datetime.datetime):
+            return value.strftime("%b %d, %Y")
+        if isinstance(value, datetime.date):
+            return value.strftime("%b %d, %Y")
+        return str(value or "-")
+
+
+class TransactionDetailsDialog(QDialog):
+    def __init__(self, transaction, read_only=False, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint | Qt.CustomizeWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setWindowTitle("Transaction Details")
+        self.setModal(True)
+        self.setMinimumWidth(700)
+        self.mark_paid_requested = False
+        self._transaction = transaction
+        self._read_only = read_only
+
+        self.setStyleSheet(
+            f"""
+            QDialog {{ background:transparent; }}
+            QLabel {{ color:{GRAY_5}; background:transparent; border:none; }}
+            QFrame#DialogSurface {{
+                background:#f8faf9;
+                border:1px solid #d8e2e0;
+                border-radius:12px;
+            }}
+            QFrame#SummaryBand {{
+                background:{TEAL_PALE};
+                border:1px solid #cfe1dd;
+                border-radius:8px;
+            }}
+            QFrame#Card {{
+                background:{WHITE};
+                border:1px solid {GRAY_2};
+                border-radius:10px;
+            }}
+            """
+        )
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        surface = QFrame()
+        surface.setObjectName("DialogSurface")
+        surface_lay = QVBoxLayout(surface)
+        surface_lay.setContentsMargins(22, 20, 22, 18)
+        surface_lay.setSpacing(14)
+        root.addWidget(surface)
+
+        header = QHBoxLayout()
+        header.setContentsMargins(0, 0, 0, 0)
+        header.setSpacing(16)
+
+        title_col = QVBoxLayout()
+        title_col.setSpacing(3)
+
+        title = QLabel("Transaction Details")
+        title.setFont(playfair(22, QFont.Medium))
+        title.setStyleSheet(f"color:{TEAL_DARK};")
+
+        subtitle = QLabel("Read-only payment and delivery record.")
+        subtitle.setFont(inter(11))
+        subtitle.setStyleSheet(f"color:{GRAY_4};")
+
+        title_col.addWidget(title)
+        title_col.addWidget(subtitle)
+        header.addLayout(title_col, 1)
+
+        status_badge = QLabel(self._payment_text(transaction.get("payment_status")))
+        status_badge.setFont(inter(9, QFont.DemiBold))
+        status_badge.setAlignment(Qt.AlignCenter)
+        status_badge.setFixedSize(88, 28)
+        status_badge.setStyleSheet(self._status_badge_style(transaction.get("payment_status")))
+        header.addWidget(status_badge, 0, Qt.AlignTop)
+        surface_lay.addLayout(header)
+
+        summary = QFrame()
+        summary.setObjectName("SummaryBand")
+        summary_lay = QHBoxLayout(summary)
+        summary_lay.setContentsMargins(16, 12, 16, 12)
+        summary_lay.setSpacing(14)
+
+        customer = QLabel(str(transaction.get("customer_name") or "-"))
+        customer.setFont(inter(15, QFont.DemiBold))
+        customer.setStyleSheet(f"color:{TEAL_DARK};")
+
+        amount = QLabel(format_money(transaction.get("total_amount")))
+        amount.setFont(inter(18, QFont.DemiBold))
+        amount.setStyleSheet(f"color:{TEAL_DARK};")
+
+        summary_lay.addWidget(customer, 1)
+        summary_lay.addWidget(amount, 0, Qt.AlignRight)
+        surface_lay.addWidget(summary)
+
+        card = QFrame()
+        card.setObjectName("Card")
+        card_lay = QVBoxLayout(card)
+        card_lay.setContentsMargins(18, 16, 18, 16)
+        card_lay.setSpacing(12)
+
+        section = QLabel("Record Information")
+        section.setFont(inter(10, QFont.DemiBold))
+        section.setStyleSheet(f"color:{TEAL_DARK};letter-spacing:0.8px;")
+        card_lay.addWidget(section)
+
+        details = [
+            ("Transaction ID", self._reference(transaction.get("transaction_id"))),
+            ("Delivery ID", self._reference(transaction.get("delivery_id"))),
+            ("Customer contact", transaction.get("customer_contact", "")),
+            ("Delivery address", transaction.get("customer_address", "")),
+            ("Delivery date", self._date_text(transaction.get("delivery_date"), transaction.get("delivery_date_fmt"))),
+            ("Delivery status", self._status_text(transaction.get("delivery_status"))),
+            ("Products", transaction.get("product_summary", "")),
+            ("Payment status", self._payment_text(transaction.get("payment_status"))),
+            ("Paid at", self._date_text(transaction.get("paid_at"), transaction.get("paid_at_fmt"))),
+            ("Recorded at", transaction.get("created_at_fmt", "")),
+        ]
+        for label_text, value_text in details:
+            card_lay.addWidget(self._detail_row(label_text, value_text))
+
+        surface_lay.addWidget(card)
+
+        button_row = QHBoxLayout()
+        button_row.addStretch()
+
+        if self._can_mark_paid(transaction):
+            mark_btn = QPushButton("Mark as Paid")
+            mark_btn.setCursor(Qt.PointingHandCursor)
+            mark_btn.setFont(inter(10, QFont.Medium))
+            mark_btn.setFixedSize(120, 36)
+            mark_btn.setStyleSheet(
+                f"""
+                QPushButton {{
+                    background:{TEAL};
+                    color:{WHITE};
+                    border:1px solid {TEAL};
+                    border-radius:7px;
+                }}
+                QPushButton:hover {{
+                    background:{TEAL_DARK};
+                    border-color:{TEAL_DARK};
+                }}
+                """
+            )
+            mark_btn.clicked.connect(self._request_mark_paid)
+            button_row.addWidget(mark_btn)
+
+        close_btn = QPushButton("Close")
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setFont(inter(10, QFont.Medium))
+        close_btn.setFixedSize(92, 36)
+        close_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                background:{WHITE};
+                color:{GRAY_5};
+                border:1px solid {GRAY_2};
+                border-radius:7px;
+            }}
+            QPushButton:hover {{
+                background:#f1f5f4;
+            }}
+            """
+        )
+        close_btn.clicked.connect(self.accept)
+        button_row.addWidget(close_btn)
+        surface_lay.addLayout(button_row)
+
+    def _detail_row(self, label_text, value_text):
+        row = QWidget()
+        row.setStyleSheet("background:transparent;border:none;")
+        lay = QHBoxLayout(row)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(14)
+
+        label = QLabel(label_text)
+        label.setFont(inter(10, QFont.DemiBold))
+        label.setFixedWidth(132)
+        label.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        label.setStyleSheet(f"color:{GRAY_4};letter-spacing:0.4px;")
+
+        value = QLabel(str(value_text or "-"))
+        value.setFont(inter(11, QFont.Medium))
+        value.setWordWrap(True)
+        value.setAlignment(Qt.AlignLeft | Qt.AlignTop)
+        value.setStyleSheet(f"color:{GRAY_5};")
+
+        lay.addWidget(label)
+        lay.addWidget(value, 1)
+        return row
+
+    def _can_mark_paid(self, transaction):
+        return not self._read_only and str(transaction.get("payment_status", "")).lower() != "paid"
+
+    def _request_mark_paid(self):
+        self.mark_paid_requested = True
+        self.accept()
+
+    @staticmethod
+    def _reference(value):
+        text = str(value or "").strip()
+        return f"#{text}" if text else "-"
+
+    @staticmethod
+    def _payment_text(value):
+        text = str(value or "").strip()
+        return text.title() if text else "Unpaid"
+
+    @staticmethod
+    def _status_text(value):
+        text = str(value or "").strip()
+        return text.title() if text else "-"
+
+    @staticmethod
+    def _date_text(value, fallback=""):
+        if fallback:
+            return fallback
+        if isinstance(value, datetime.datetime):
+            return value.strftime("%b %d, %Y")
+        if isinstance(value, datetime.date):
+            return value.strftime("%b %d, %Y")
+        return str(value or "-")
+
+    @staticmethod
+    def _status_badge_style(status):
+        if str(status or "").lower() == "paid":
+            return f"background:{GREEN_BG};color:{GREEN};border:1px solid #cfe6d9;border-radius:6px;letter-spacing:1px;"
+        return f"background:{AMBER_BG};color:{AMBER};border:1px solid #f0dfb7;border-radius:6px;letter-spacing:1px;"
 
 
 class TransactionView(QWidget):
     AUTO_REFRESH_INTERVAL_MS = 5000
     DEFAULT_LOOKBACK_YEARS = 10
 
-    def __init__(self, parent=None, show_topbar=True, controller=None):
+    def __init__(self, parent=None, show_topbar=True, controller=None, read_only=False):
         super().__init__(parent)
         self._show_topbar = show_topbar
+        self._read_only = read_only
         self._all_transactions = []
         self._filtered_transactions = []
         self._controller = None
@@ -594,106 +940,13 @@ class TransactionView(QWidget):
 
         summary_row = QHBoxLayout()
         summary_row.setSpacing(12)
-        self._metric_paid = MetricCard("TOTAL PAID", "₱0.00", "Sum of paid transactions", TEAL)
-        self._metric_unpaid = MetricCard("TOTAL UNPAID", "₱0.00", "Sum of unpaid transactions", AMBER)
+        self._metric_paid = MetricCard("TOTAL PAID", "PHP 0.00", "Collected transactions", TEAL)
+        self._metric_unpaid = MetricCard("TOTAL UNPAID", "PHP 0.00", "Receivables to collect", AMBER)
         summary_row.addWidget(self._metric_paid)
         summary_row.addWidget(self._metric_unpaid)
         content_lay.addLayout(summary_row)
 
-        self._table = QTableWidget(0, 7)
-        self._table.setHorizontalHeaderLabels([
-            "CUSTOMER NAME",
-            "DELIVERY DATE",
-            "LPG PRODUCTS",
-            "TOTAL AMOUNT",
-            "PAYMENT STATUS",
-            "PAID AT",
-            "ACTIONS",
-        ])
-        self._table.verticalHeader().setVisible(False)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._table.setSelectionMode(QAbstractItemView.NoSelection)
-        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._table.setFocusPolicy(Qt.NoFocus)
-        self._table.setAlternatingRowColors(True)
-        self._table.setShowGrid(False)
-        self._table.setWordWrap(False)
-        self._table.setSortingEnabled(False)
-        self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self._table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self._table.setStyleSheet(
-            f"""
-            QTableWidget {{
-                background:{WHITE};
-                border:1px solid {GRAY_2};
-                border-radius:8px;
-                alternate-background-color:#fbfcfc;
-                selection-background-color:{TEAL_PALE};
-                selection-color:{TEAL_DARK};
-                gridline-color:transparent;
-            }}
-            QHeaderView::section {{
-                background:#f7f8f8;
-                color:{GRAY_4};
-                border:none;
-                border-bottom:1px solid {GRAY_2};
-                padding:10px 12px;
-                font-family:{INTER_FAMILY};
-                font-size:12px;
-                font-weight:600;
-                letter-spacing:1px;
-                text-align:center;
-            }}
-            QTableWidget::item {{
-                padding:4px 12px;
-                border:none;
-                border-bottom:1px solid #f3f5f4;
-                color:{GRAY_5};
-            }}
-            QTableWidget::item:selected {{
-                background:transparent;
-                color:{GRAY_5};
-                border-bottom:1px solid #f3f5f4;
-            }}
-            QToolTip {{
-                background:{WHITE};
-                color:{GRAY_5};
-                border:1px solid {GRAY_2};
-                padding:6px 8px;
-                font-family:{INTER_FAMILY};
-                font-size:12px;
-            }}
-            QScrollBar:horizontal {{
-                border:none;
-                background:{GRAY_1};
-                height:6px;
-                margin:0px 0px 0px 0px;
-            }}
-            QScrollBar::handle:horizontal {{
-                background:{TEAL};
-                border-radius:3px;
-                min-width:50px;
-            }}
-            QScrollBar::handle:horizontal:hover {{
-                background:{TEAL_DARK};
-            }}
-            QScrollBar::add-line:horizontal {{
-                border:none;
-                background:none;
-            }}
-            QScrollBar::sub-line:horizontal {{
-                border:none;
-                background:none;
-            }}
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
-                background:none;
-            }}
-            """
-        )
-        self._table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
-        self._table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter)
-        self._table.horizontalHeader().setFixedHeight(42)
-        content_lay.addWidget(self._table)
+        self._transactions_card = self._build_transactions_card()
 
         self._empty_state = QWidget()
         empty_lay = QVBoxLayout(self._empty_state)
@@ -734,12 +987,113 @@ class TransactionView(QWidget):
         empty_lay.addWidget(self._empty_desc)
 
         self._stack = QStackedWidget()
-        self._stack.addWidget(self._table)
+        self._stack.addWidget(self._transactions_card)
         self._stack.addWidget(self._empty_state)
         content_lay.addWidget(self._stack)
 
         scroll.setWidget(self._content)
         root.addWidget(scroll)
+
+    def _build_transactions_card(self):
+        card = QFrame()
+        card.setObjectName("TransactionsCard")
+        card.setMinimumHeight(520)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        card.setStyleSheet(
+            f"""
+            QFrame#TransactionsCard {{
+                background:{WHITE};
+                border:1px solid {GRAY_2};
+                border-radius:8px;
+            }}
+            """
+        )
+
+        root = QVBoxLayout(card)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        header = QWidget()
+        header.setFixedHeight(54)
+        header.setStyleSheet(f"background:#f4f8f7;border:none;border-bottom:1px solid {GRAY_2};")
+        header_lay = QGridLayout(header)
+        header_lay.setContentsMargins(16, 0, 16, 0)
+        header_lay.setHorizontalSpacing(14)
+        header_lay.setVerticalSpacing(0)
+        self._configure_transaction_columns(header_lay)
+
+        header_lay.addWidget(self._transaction_header_label("CUSTOMER"), 0, 0)
+        header_lay.addWidget(self._transaction_header_label("DELIVERY"), 0, 1)
+        header_lay.addWidget(self._transaction_header_label("PRODUCTS"), 0, 2)
+        header_lay.addWidget(self._transaction_header_label("AMOUNT", Qt.AlignRight | Qt.AlignVCenter), 0, 3)
+        header_lay.addWidget(self._transaction_header_label("PAYMENT", Qt.AlignCenter), 0, 4)
+        header_lay.addWidget(self._transaction_header_label("PAID AT"), 0, 5)
+        if not self._read_only:
+            header_lay.addWidget(self._transaction_header_label("", Qt.AlignCenter), 0, 6)
+        root.addWidget(header)
+
+        self._transactions_scroll = QScrollArea()
+        self._transactions_scroll.setWidgetResizable(True)
+        self._transactions_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._transactions_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._transactions_scroll.setStyleSheet(
+            f"""
+            QScrollArea {{ background:transparent;border:none; }}
+            QScrollBar:vertical {{
+                background:transparent;
+                width:10px;
+                margin:8px 3px 8px 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background:rgba(26,122,110,0.34);
+                border-radius:5px;
+                min-height:32px;
+            }}
+            QScrollBar::handle:vertical:hover {{ background:rgba(26,122,110,0.52); }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height:0;
+                border:none;
+                background:transparent;
+            }}
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background:transparent; }}
+            """
+        )
+
+        self._transactions_list = QWidget()
+        self._transactions_list.setStyleSheet("background:transparent;border:none;")
+        self._transactions_lay = QVBoxLayout(self._transactions_list)
+        self._transactions_lay.setContentsMargins(14, 14, 14, 14)
+        self._transactions_lay.setSpacing(8)
+
+        self._transactions_scroll.setWidget(self._transactions_list)
+        root.addWidget(self._transactions_scroll)
+        return card
+
+    def _configure_transaction_columns(self, layout):
+        widths = {
+            0: TX_CUSTOMER_W,
+            1: TX_DELIVERY_W,
+            2: TX_PRODUCT_MIN_W,
+            3: TX_AMOUNT_W,
+            4: TX_PAYMENT_W,
+            5: TX_PAID_AT_W,
+        }
+        if not self._read_only:
+            widths[6] = TX_ACTION_W
+
+        for column, width in widths.items():
+            layout.setColumnMinimumWidth(column, width)
+            layout.setColumnStretch(column, 0)
+        layout.setColumnStretch(2, 1)
+
+    def _transaction_header_label(self, text, alignment=Qt.AlignLeft | Qt.AlignVCenter):
+        label = QLabel(text)
+        label.setFont(inter(10, QFont.DemiBold))
+        label.setAlignment(alignment)
+        label.setStyleSheet(
+            f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;"
+        )
+        return label
 
     def _configure_date_edit(self, date_edit, min_height=34, min_width=140):
         date_edit.setStyleSheet(_date_edit_style(min_height=min_height, min_width=min_width))
@@ -770,7 +1124,7 @@ class TransactionView(QWidget):
             prev_btn = calendar.findChild(QToolButton, "qt_calendar_prevmonth")
             if prev_btn is not None:
                 prev_btn.setIcon(QIcon())
-                prev_btn.setText("‹")
+                prev_btn.setText("<")
                 prev_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
                 prev_btn.setStyleSheet(
                     f"""
@@ -791,7 +1145,7 @@ class TransactionView(QWidget):
             next_btn = calendar.findChild(QToolButton, "qt_calendar_nextmonth")
             if next_btn is not None:
                 next_btn.setIcon(QIcon())
-                next_btn.setText("›")
+                next_btn.setText(">")
                 next_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
                 next_btn.setStyleSheet(
                     f"""
@@ -814,14 +1168,20 @@ class TransactionView(QWidget):
             self._date_to.blockSignals(True)
             self._date_to.setDate(new_date)
             self._date_to.blockSignals(False)
-        self._apply_filter()
+        if self._controller:
+            self.reload_data()
+        else:
+            self._apply_filter()
 
     def _on_date_to_changed(self, new_date):
         if new_date < self._date_from.date():
             self._date_from.blockSignals(True)
             self._date_from.setDate(new_date)
             self._date_from.blockSignals(False)
-        self._apply_filter()
+        if self._controller:
+            self.reload_data()
+        else:
+            self._apply_filter()
 
     def _build_topbar(self):
         bar = QWidget()
@@ -980,6 +1340,7 @@ class TransactionView(QWidget):
 
         self._metric_paid.value_lbl.setText(self._format_amount(paid_total))
         self._metric_unpaid.value_lbl.setText(self._format_amount(unpaid_total))
+        self._clear_transaction_rows()
 
         if not self._filtered_transactions:
             if not self._all_transactions:
@@ -993,58 +1354,200 @@ class TransactionView(QWidget):
                     "No transaction records match the selected status or date range. Try adjusting the filters to see more results."
                 )
             self._stack.setCurrentWidget(self._empty_state)
-            self._table.setRowCount(0)
             return
 
-        self._stack.setCurrentWidget(self._table)
-        self._table.setRowCount(len(self._filtered_transactions))
+        self._stack.setCurrentWidget(self._transactions_card)
 
         for row_index, transaction in enumerate(self._filtered_transactions):
-            self._set_item(row_index, 0, transaction.get("customer_name", ""))
-            self._set_item(row_index, 1, self._format_date(transaction.get("delivery_date")))
-            self._set_item(row_index, 2, transaction.get("product_summary", ""))
-            self._set_item(row_index, 3, self._format_amount(transaction.get("total_amount")))
-            self._set_status_pill(row_index, 4, transaction.get("payment_status", ""))
-            self._set_item(
-                row_index,
-                5,
-                self._format_paid_at(transaction.get("paid_at"), transaction.get("payment_status")),
+            self._transactions_lay.addWidget(self._build_transaction_row(transaction, row_index))
+
+        self._transactions_lay.addStretch()
+
+    def _clear_transaction_rows(self):
+        if not hasattr(self, "_transactions_lay"):
+            return
+        while self._transactions_lay.count():
+            item = self._transactions_lay.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _build_transaction_row(self, transaction, row_index):
+        row = TransactionRow(transaction)
+        row.setObjectName("TransactionRow")
+        row.setFixedHeight(72)
+        row.setToolTip("Click to view transaction details")
+        row.clicked.connect(self._show_transaction_details)
+        row.setStyleSheet(
+            f"""
+            QFrame#TransactionRow {{
+                background:#fbfdfc;
+                border:1px solid {GRAY_2};
+                border-radius:6px;
+            }}
+            QFrame#TransactionRow:hover {{
+                background:#eef8f6;
+                border-color:#c9ddd9;
+            }}
+            """
+        )
+
+        grid = QGridLayout(row)
+        grid.setContentsMargins(14, 0, 14, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(0)
+        self._configure_transaction_columns(grid)
+
+        customer_cell = self._make_transaction_widget_clickable(
+            self._transaction_cell(transaction.get("customer_name", ""), TEAL_DARK, QFont.Medium),
+            transaction,
+        )
+        delivery_cell = self._make_transaction_widget_clickable(
+            self._transaction_cell(self._format_date(transaction.get("delivery_date")), GRAY_5),
+            transaction,
+        )
+        product_cell = self._make_transaction_widget_clickable(
+            self._product_cell(transaction.get("product_summary", "")),
+            transaction,
+        )
+        amount_cell = self._make_transaction_widget_clickable(
+            self._transaction_cell(
+                self._format_amount(transaction.get("total_amount")),
+                TEAL_DARK,
+                QFont.DemiBold,
+                Qt.AlignRight | Qt.AlignVCenter,
+            ),
+            transaction,
+        )
+        payment_cell = self._make_transaction_widget_clickable(
+            self._status_pill(transaction.get("payment_status", "")),
+            transaction,
+        )
+        paid_at_cell = self._make_transaction_widget_clickable(
+            self._transaction_cell(
+                self._format_paid_at(transaction.get("paid_at"), transaction.get("payment_status")) or "-",
+                GRAY_4,
+            ),
+            transaction,
+        )
+
+        grid.addWidget(customer_cell, 0, 0)
+        grid.addWidget(delivery_cell, 0, 1)
+        grid.addWidget(product_cell, 0, 2)
+        grid.addWidget(amount_cell, 0, 3)
+        grid.addWidget(payment_cell, 0, 4)
+        grid.addWidget(paid_at_cell, 0, 5)
+        if not self._read_only:
+            grid.addWidget(self._action_cell(transaction, row_index), 0, 6)
+        return row
+
+    def _make_transaction_widget_clickable(self, widget, transaction):
+        widget.setCursor(Qt.PointingHandCursor)
+        original_mouse_release = widget.mouseReleaseEvent
+
+        def handle_mouse_release(event, item=transaction, original=original_mouse_release):
+            if event.button() == Qt.LeftButton:
+                self._show_transaction_details(item)
+                event.accept()
+                return
+            original(event)
+
+        widget.mouseReleaseEvent = handle_mouse_release
+        return widget
+
+    def _transaction_cell(
+        self,
+        value,
+        color=GRAY_5,
+        weight=QFont.Normal,
+        alignment=Qt.AlignLeft | Qt.AlignVCenter,
+    ):
+        label = QLabel(str(value or "-"))
+        label.setFont(inter(11, weight))
+        label.setAlignment(alignment)
+        label.setStyleSheet(f"color:{color};background:transparent;border:none;")
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        label.setToolTip(str(value or "-"))
+        label.setMinimumWidth(0)
+        return label
+
+    def _product_cell(self, value):
+        label = QLabel(trim_text(value, 70))
+        label.setFont(inter(11))
+        label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        label.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        label.setMinimumWidth(0)
+        label.setToolTip(str(value or "-"))
+        return label
+
+    def _status_pill(self, value):
+        status = str(value or "unpaid").strip().lower()
+        label = QLabel(status.title())
+        label.setAlignment(Qt.AlignCenter)
+        label.setFont(inter(10, QFont.DemiBold))
+        label.setFixedHeight(28)
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        label.setMinimumWidth(0)
+        label.setStyleSheet(self._status_style(status))
+        return label
+
+    def _action_cell(self, transaction, row_index):
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background:transparent;border:none;")
+        layout = QHBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setAlignment(Qt.AlignCenter)
+
+        if str(transaction.get("payment_status", "")).lower() == "unpaid":
+            button = QPushButton("Mark Paid")
+            button.setCursor(Qt.PointingHandCursor)
+            button.setFont(inter(10, QFont.Medium))
+            button.setFixedSize(104, 34)
+            button.setStyleSheet(
+                f"""
+                QPushButton {{
+                    color:{WHITE};
+                    background:{TEAL};
+                    border:1px solid {TEAL};
+                    border-radius:17px;
+                    padding:0 12px;
+                }}
+                QPushButton:hover {{
+                    background:{TEAL_DARK};
+                    border-color:{TEAL_DARK};
+                }}
+                QPushButton:pressed {{
+                    background:#0f4f47;
+                    border-color:#0f4f47;
+                }}
+                """
             )
+            button.clicked.connect(lambda _checked=False, item=transaction: self._confirm_and_mark_paid(item))
+            layout.addWidget(button)
+        else:
+            label = QLabel("-")
+            label.setFont(inter(11))
+            label.setAlignment(Qt.AlignCenter)
+            label.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
+            layout.addWidget(label)
 
-            action_widget = QWidget()
-            action_layout = QHBoxLayout(action_widget)
-            action_layout.setContentsMargins(0, 0, 0, 0)
-            action_layout.setAlignment(Qt.AlignCenter)
+        return wrapper
 
-            if str(transaction.get("payment_status", "")).lower() == "unpaid":
-                button = QPushButton("Mark as Paid")
-                button.setCursor(Qt.PointingHandCursor)
-                button.setFont(inter(10, QFont.Medium))
-                button.setFixedHeight(30)
-                button.setStyleSheet(
-                    f"""
-                    QPushButton {{
-                        color:{WHITE};
-                        background:{TEAL};
-                        border:1px solid {TEAL};
-                        border-radius:4px;
-                        padding:0 12px;
-                    }}
-                    QPushButton:hover {{ background:{TEAL_DARK}; border-color:{TEAL_DARK}; }}
-                    """
-                )
-                button.clicked.connect(lambda _, index=row_index: self._prompt_mark_paid(index))
-                action_layout.addWidget(button)
-
-            self._table.setCellWidget(row_index, 6, action_widget)
-
-        self._table.resizeRowsToContents()
+    def _show_transaction_details(self, transaction):
+        dialog = TransactionDetailsDialog(transaction, read_only=self._read_only, parent=self)
+        result = dialog.exec()
+        if result == QDialog.Accepted and dialog.mark_paid_requested:
+            self._confirm_and_mark_paid(transaction)
 
     def _prompt_mark_paid(self, row_index):
         if row_index < 0 or row_index >= len(self._filtered_transactions):
             return
 
         transaction = self._filtered_transactions[row_index]
+        self._confirm_and_mark_paid(transaction)
+
+    def _confirm_and_mark_paid(self, transaction):
         dialog = ConfirmPaidDialog(transaction, self)
         if dialog.exec() == QDialog.Accepted:
             self._mark_transaction_paid(transaction)
@@ -1058,33 +1561,11 @@ class TransactionView(QWidget):
             return
         self._controller.mark_paid(delivery_id)
 
-    def _set_item(self, row, column, value):
-        item = QTableWidgetItem(str(value))
-        item.setFont(inter(11))
-        item.setTextAlignment(Qt.AlignCenter)
-        item.setToolTip(str(value))
-        self._table.setItem(row, column, item)
-
-    def _set_status_pill(self, row, column, value):
-        status = str(value).strip()
-        label = QLabel(status.title() if status else "Unpaid")
-        label.setAlignment(Qt.AlignCenter)
-        label.setFont(inter(10, QFont.DemiBold))
-        label.setMinimumHeight(24)
-        label.setStyleSheet(self._status_style(status))
-
-        wrapper = QWidget()
-        wrapper_layout = QHBoxLayout(wrapper)
-        wrapper_layout.setContentsMargins(6, 6, 6, 6)
-        wrapper_layout.setAlignment(Qt.AlignCenter)
-        wrapper_layout.addWidget(label)
-        self._table.setCellWidget(row, column, wrapper)
-
     def _status_style(self, status):
         status_key = status.lower()
         if status_key == "paid":
-            return f"color:{GREEN};background:{GREEN_BG};border:1px solid #cfe6d9;border-radius:12px;padding:0 12px;"
-        return f"color:{AMBER};background:{AMBER_BG};border:1px solid #f0dfb7;border-radius:12px;padding:0 12px;"
+            return f"color:{GREEN};background:{GREEN_BG};border:1px solid #cfe6d9;border-radius:14px;padding:0 12px;"
+        return f"color:{AMBER};background:{AMBER_BG};border:1px solid #f0dfb7;border-radius:14px;padding:0 12px;"
 
     def _safe_float(self, value):
         try:
@@ -1093,7 +1574,7 @@ class TransactionView(QWidget):
             return 0.0
 
     def _format_amount(self, value):
-        return f"₱{self._safe_float(value):,.2f}"
+        return f"PHP {self._safe_float(value):,.2f}"
 
     def _coerce_date(self, value):
         if isinstance(value, QDate):

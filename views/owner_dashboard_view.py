@@ -1,4 +1,4 @@
-﻿import datetime
+import datetime
 import os
 import sys
 
@@ -224,7 +224,6 @@ class OwnerKpiCard(QFrame):
         val.setMinimumHeight(42)
         val.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         val.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-        self.value_label = val
 
         if isinstance(value, (int, float)):
             numeric_value = float(value)
@@ -251,7 +250,6 @@ class OwnerKpiCard(QFrame):
 class SalesChartCard(QFrame):
     def __init__(self, weekly_sales, parent=None):
         super().__init__(parent)
-        self._weekly_sales = weekly_sales
         self._bar_entries = []
 
         self.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
@@ -267,7 +265,7 @@ class SalesChartCard(QFrame):
         h_lay = QHBoxLayout(head)
         h_lay.setContentsMargins(18, 12, 18, 10)
 
-        t = QLabel("Sales Chart - Current Week")
+        t = QLabel("Delivered Sales - Current Week")
         t.setFont(playfair(15, QFont.Medium))
         t.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
         h_lay.addWidget(t)
@@ -494,6 +492,9 @@ class OwnerDashboardView(QMainWindow):
                 "total_sales_today": 0,
                 "total_sales_this_week": 0,
                 "total_sales_this_month": 0,
+                "total_sales_last_month": 0,
+                "month_sales_change_pct": 0,
+                "total_receivables": 0,
             },
             "delivery_counts": {
                 "total_today": 0,
@@ -501,7 +502,8 @@ class OwnerDashboardView(QMainWindow):
                 "cancelled_today": 0,
                 "pending_today": 0,
                 "in_transit_today": 0,
-                "sales_today": 0,
+                "delivery_success_rate": 0,
+                "cancellation_rate": 0,
             },
             "weekly_chart": [],
             "top_customers": [],
@@ -559,11 +561,33 @@ class OwnerDashboardView(QMainWindow):
             return f"PHP {formatted}"
         return f"PHP {self._to_float(value):,.2f}"
 
-    def _delivery_ratio(self):
+    def _percent_text(self, value):
+        return f"{self._to_float(value):.0f}%"
+
+    def _revenue_comparison_value(self, sales_kpis):
+        current_month = self._to_float(sales_kpis.get("total_sales_this_month"))
+        last_month = self._to_float(sales_kpis.get("total_sales_last_month"))
+        if last_month <= 0 and current_month > 0:
+            return "First active month"
+        return f"{self._to_float(sales_kpis.get('month_sales_change_pct')):+.0f}%"
+
+    def _revenue_comparison_desc(self, sales_kpis):
+        last_month = self._to_float(sales_kpis.get("total_sales_last_month"))
+        if last_month <= 0:
+            return "No last-month sales to compare"
+        return f"Last month PHP {last_month:,.2f}"
+
+    def _open_deliveries_today(self):
         delivery_counts = self._dashboard_data.get("delivery_counts", {})
-        delivered = self._to_int(delivery_counts.get("delivered_today"))
-        cancelled = self._to_int(delivery_counts.get("cancelled_today"))
-        return f"{delivered} : {cancelled}"
+        pending = self._to_int(delivery_counts.get("pending_today"))
+        in_transit = self._to_int(delivery_counts.get("in_transit_today"))
+        return pending + in_transit
+
+    def _open_deliveries_desc(self):
+        delivery_counts = self._dashboard_data.get("delivery_counts", {})
+        pending = self._to_int(delivery_counts.get("pending_today"))
+        in_transit = self._to_int(delivery_counts.get("in_transit_today"))
+        return f"Pending {pending} | In transit {in_transit}"
 
     def _modern_scrollbar_qss(self):
         return owner_scrollbar_qss()
@@ -1021,6 +1045,7 @@ class OwnerDashboardView(QMainWindow):
     def _build_dashboard_content(self):
         sales_kpis = self._dashboard_data.get("sales_kpis", {})
         delivery_counts = self._dashboard_data.get("delivery_counts", {})
+        open_deliveries_today = self._open_deliveries_today()
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -1050,7 +1075,7 @@ class OwnerDashboardView(QMainWindow):
         title.setFont(playfair(28, QFont.Medium))
         title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
-        page_sub = QLabel("Monitor sales, deliveries, and customer trends in one place.")
+        page_sub = QLabel("Monitor delivered sales, collections, deliveries, and customer trends in one place.")
         page_sub.setFont(inter(12))
         page_sub.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;margin-top:4px;")
 
@@ -1080,7 +1105,7 @@ class OwnerDashboardView(QMainWindow):
             OwnerKpiCard(
                 "TOTAL SALES TODAY",
                 self._to_float(sales_kpis.get("total_sales_today")),
-                "Sales for today",
+                "Delivered sales today",
                 TEAL,
                 value_prefix="PHP ",
             ),
@@ -1090,7 +1115,7 @@ class OwnerDashboardView(QMainWindow):
             OwnerKpiCard(
                 "TOTAL SALES THIS WEEK",
                 self._to_float(sales_kpis.get("total_sales_this_week")),
-                "Current week total",
+                "Delivered sales this week",
                 TEAL_MID,
                 value_prefix="PHP ",
             ),
@@ -1100,13 +1125,45 @@ class OwnerDashboardView(QMainWindow):
             OwnerKpiCard(
                 "TOTAL SALES THIS MONTH",
                 self._to_float(sales_kpis.get("total_sales_this_month")),
-                "Current month total",
+                "Delivered sales this month",
                 TEAL_LIGHT,
                 value_prefix="PHP ",
             ),
             1,
         )
         stat_lay.addLayout(sales_row)
+
+        finance_row = QHBoxLayout()
+        finance_row.setSpacing(14)
+        finance_row.addWidget(
+            OwnerKpiCard(
+                "MONTHLY REVENUE CHANGE",
+                self._revenue_comparison_value(sales_kpis),
+                self._revenue_comparison_desc(sales_kpis),
+                TEAL_MID if self._to_float(sales_kpis.get("month_sales_change_pct")) >= 0 else AMBER,
+            ),
+            1,
+        )
+        finance_row.addWidget(
+            OwnerKpiCard(
+                "TOTAL RECEIVABLES",
+                self._to_float(sales_kpis.get("total_receivables")),
+                "All unpaid delivered sales",
+                AMBER,
+                value_prefix="PHP ",
+            ),
+            1,
+        )
+        finance_row.addWidget(
+            OwnerKpiCard(
+                "COMPLETION TODAY",
+                self._percent_text(delivery_counts.get("delivery_success_rate")),
+                "Delivered out of scheduled",
+                TEAL_LIGHT,
+            ),
+            1,
+        )
+        stat_lay.addLayout(finance_row)
 
         lay.addWidget(stat_block)
         lay.addSpacing(22)
@@ -1122,17 +1179,17 @@ class OwnerDashboardView(QMainWindow):
             OwnerKpiCard(
                 "TOTAL DELIVERIES TODAY",
                 self._to_int(delivery_counts.get("total_today")),
-                "Scheduled and completed today",
+                "All scheduled today",
                 TEAL,
             ),
             0,
         )
         ops_col.addWidget(
             OwnerKpiCard(
-                "DELIVERED VS CANCELLED",
-                self._delivery_ratio(),
-                "Delivered to cancelled ratio",
-                AMBER,
+                "OPEN DELIVERIES TODAY",
+                open_deliveries_today,
+                self._open_deliveries_desc(),
+                AMBER if open_deliveries_today else TEAL_LIGHT,
             ),
             0,
         )
@@ -1175,7 +1232,7 @@ class OwnerDashboardView(QMainWindow):
         head.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
         h_lay = QHBoxLayout(head)
         h_lay.setContentsMargins(18, 12, 18, 10)
-        t = QLabel("Top 5 Customers")
+        t = QLabel("Top Customers This Month")
         t.setFont(playfair(15, QFont.Medium))
         t.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
         h_lay.addWidget(t)
@@ -1310,11 +1367,11 @@ class OwnerDashboardView(QMainWindow):
         content = QWidget()
         content.setStyleSheet("background:transparent;border:none;")
         content_lay = QVBoxLayout(content)
-        content_lay.setContentsMargins(12, 12, 12, 12)
+        content_lay.setContentsMargins(18, 14, 18, 16)
         content_lay.setSpacing(8)
 
         recent_transactions = self._dashboard_data.get("recent_transactions", [])
-        status_colors = {"PAID": TEAL, "UNPAID": "#E53E3E"}
+        status_colors = {"PAID": TEAL, "UNPAID": AMBER}
 
         if not recent_transactions:
             empty_lbl = QLabel("No recent transactions yet.")
@@ -1327,9 +1384,34 @@ class OwnerDashboardView(QMainWindow):
             lay.addWidget(content)
             return card
 
+        header = QWidget()
+        header_lay = QHBoxLayout(header)
+        header_lay.setContentsMargins(12, 0, 12, 2)
+        header_lay.setSpacing(12)
+        header.setStyleSheet("background:transparent;border:none;")
+
+        for text, width, alignment in [
+            ("Delivery ID", 92, Qt.AlignLeft),
+            ("Customer", None, Qt.AlignLeft),
+            ("Delivery Date", 140, Qt.AlignLeft),
+            ("Amount", 130, Qt.AlignRight),
+            ("Payment", 96, Qt.AlignCenter),
+        ]:
+            label = QLabel(text)
+            label.setFont(inter(9, QFont.DemiBold))
+            label.setStyleSheet(f"color:{GRAY_4};letter-spacing:0.8px;background:transparent;border:none;")
+            label.setAlignment(alignment | Qt.AlignVCenter)
+            if width is not None:
+                label.setFixedWidth(width)
+                header_lay.addWidget(label)
+            else:
+                header_lay.addWidget(label, 1)
+
+        content_lay.addWidget(header)
+
         for row in recent_transactions:
-            transaction_ref = self._text(
-                row.get("transaction_id") if isinstance(row, dict) else "",
+            delivery_ref = self._text(
+                row.get("delivery_id") if isinstance(row, dict) else "",
                 "N/A",
             )
             customer_name = self._text(
@@ -1351,13 +1433,13 @@ class OwnerDashboardView(QMainWindow):
 
             item = QWidget()
             item_lay = QHBoxLayout(item)
-            item_lay.setContentsMargins(12, 6, 12, 6)
-            item_lay.setSpacing(10)
+            item_lay.setContentsMargins(12, 8, 12, 8)
+            item_lay.setSpacing(12)
 
-            ref_lbl = QLabel(transaction_ref)
-            ref_lbl.setFont(inter(10, QFont.Medium))
+            ref_lbl = QLabel(delivery_ref)
+            ref_lbl.setFont(inter(11, QFont.Medium))
             ref_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-            ref_lbl.setFixedWidth(72)
+            ref_lbl.setFixedWidth(92)
             item_lay.addWidget(ref_lbl)
 
             info_col = QVBoxLayout()
@@ -1365,21 +1447,21 @@ class OwnerDashboardView(QMainWindow):
             info_col.setSpacing(2)
 
             cust_lbl = QLabel(customer_name)
-            cust_lbl.setFont(inter(10, QFont.Normal))
-            cust_lbl.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+            cust_lbl.setFont(inter(11, QFont.Medium))
+            cust_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
             info_col.addWidget(cust_lbl)
-
-            date_lbl = QLabel(delivery_date)
-            date_lbl.setFont(inter(9))
-            date_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-            info_col.addWidget(date_lbl)
-
             item_lay.addLayout(info_col, 1)
 
+            date_lbl = QLabel(delivery_date)
+            date_lbl.setFont(inter(10))
+            date_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+            date_lbl.setFixedWidth(140)
+            item_lay.addWidget(date_lbl)
+
             amount_lbl = QLabel(amount)
-            amount_lbl.setFont(inter(10, QFont.Medium))
+            amount_lbl.setFont(inter(11, QFont.Medium))
             amount_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-            amount_lbl.setFixedWidth(110)
+            amount_lbl.setFixedWidth(130)
             amount_lbl.setAlignment(Qt.AlignRight)
             item_lay.addWidget(amount_lbl)
 
@@ -1397,10 +1479,21 @@ class OwnerDashboardView(QMainWindow):
             status_text.setAlignment(Qt.AlignCenter)
             status_text.setStyleSheet(f"color:{WHITE};background:transparent;border:none;")
             badge_lay.addWidget(status_text)
-            item_lay.addWidget(status_badge)
 
-            item.setStyleSheet("QWidget{background:transparent;border:none;}")
-            item.setFixedHeight(38)
+            status_cell = QWidget()
+            status_cell.setFixedWidth(96)
+            status_cell.setStyleSheet("background:transparent;border:none;")
+            status_col = QVBoxLayout(status_cell)
+            status_col.setContentsMargins(0, 0, 0, 0)
+            status_col.setSpacing(2)
+            status_col.addWidget(status_badge, 0, Qt.AlignRight)
+            item_lay.addWidget(status_cell)
+
+            item.setObjectName("recentTransactionRow")
+            item.setStyleSheet(
+                f"QWidget#recentTransactionRow{{background:{GRAY_1};border:1px solid {GRAY_2};border-radius:5px;}}"
+            )
+            item.setFixedHeight(50)
 
             content_lay.addWidget(item)
 

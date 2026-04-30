@@ -6,17 +6,16 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
-from PySide6.QtCore import Qt, QTimer, QDate, QTime, QSortFilterProxyModel, QPoint
+from PySide6.QtCore import Qt, QTimer, QDate, QTime, QPoint
 from PySide6.QtGui import (
-    QColor, QFont, QFontDatabase, QStandardItemModel, QStandardItem, QPainter, QPixmap
+    QColor, QFont, QFontDatabase, QPixmap
 )
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QGridLayout,
     QLabel, QPushButton, QFrame, QScrollArea, QSizePolicy,
-    QTableView, QHeaderView, QLineEdit, QTextEdit,
-    QGraphicsDropShadowEffect, QAbstractItemView,
+    QLineEdit, QTextEdit,
+    QGraphicsDropShadowEffect,
     QStackedWidget,
-    QSpacerItem
 )
 
 from controllers.customer_controller import CustomerController
@@ -43,6 +42,15 @@ RED_BTN    = "#c0392b"
 AMBER      = "#9a6700"
 AMBER_BG   = "#fff6db"
 AMBER_LINE = "#f1d48a"
+
+CUSTOMER_NAME_W = 155
+CUSTOMER_ADDRESS_W = 150
+CUSTOMER_CONTACT_W = 110
+CUSTOMER_DELIVERIES_W = 72
+CUSTOMER_LAST_W = 105
+CUSTOMER_NOTES_W = 120
+CUSTOMER_CREATED_W = 105
+CUSTOMER_ACTIONS_W = 112
 
 PLAYFAIR_FAMILY = "Playfair Display"
 INTER_FAMILY    = "Inter"
@@ -81,6 +89,13 @@ def inter(size, weight=QFont.Normal):
     f = QFont(INTER_FAMILY, size)
     f.setWeight(weight)
     return f
+
+
+def trim_text(value, limit):
+    text = " ".join(str(value or "-").split())
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 3)].rstrip() + "..."
 
 
 class HDivider(QFrame):
@@ -780,6 +795,12 @@ class CustomerView(QWidget):
         super().__init__(parent)
         self._show_topbar = show_topbar
         self._topbar_controls_only = topbar_controls_only
+        self._visible_customers = []
+        self._pending_search_text = ""
+        self._search_timer = QTimer(self)
+        self._search_timer.setSingleShot(True)
+        self._search_timer.setInterval(250)
+        self._search_timer.timeout.connect(self._perform_search)
         load_fonts()
         self.setStyleSheet(f"background:{GRAY_1};")
         self._build_ui()
@@ -797,14 +818,15 @@ class CustomerView(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         scroll.setStyleSheet(owner_scrollbar_qss())
 
         content = QWidget()
         content.setStyleSheet("background:transparent;")
+        content.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         c_lay = QVBoxLayout(content)
-        c_lay.setContentsMargins(28, 16, 28, 28)
-        c_lay.setSpacing(0)
+        c_lay.setContentsMargins(28, 24, 28, 28)
+        c_lay.setSpacing(14)
 
         # Page title row
         title_row = QHBoxLayout()
@@ -831,55 +853,104 @@ class CustomerView(QWidget):
         left.addWidget(page_sub)
 
         self._search = QLineEdit()
-        self._search.setPlaceholderText("Search customer by name or contact number...")
+        self._search.setPlaceholderText("Search by name, contact, address, or notes...")
         self._search.setFont(inter(12))
         self._search.setFixedHeight(36)
         self._search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._search.setStyleSheet(f"""
             QLineEdit{{
-                color:{GRAY_5};background:{WHITE};
-                border:1px solid {GRAY_2};border-radius:4px;
-                padding:0 10px;
+                color:{GRAY_5};
+                background:#fbfcfc;
+                border:1px solid #d6e2df;
+                border-radius:8px;
+                padding:0 12px;
             }}
-            QLineEdit:focus{{border-color:{TEAL};}}
+            QLineEdit:hover{{
+                border-color:#b9d4cf;
+                background:{WHITE};
+            }}
+            QLineEdit:focus{{
+                border-color:{TEAL};
+                background:{WHITE};
+            }}
         """)
         self._search.textChanged.connect(self._on_search)
 
         title_row.addLayout(left)
         c_lay.addLayout(title_row)
-        c_lay.addSpacing(30)
+
+        summary_row = QHBoxLayout()
+        summary_row.setContentsMargins(0, 4, 0, 0)
+        summary_row.setSpacing(12)
+        total_card, self._summary_total_lbl = self._summary_card(
+            "VISIBLE CUSTOMERS",
+            "0",
+            "Matching current view",
+            TEAL,
+        )
+        active_card, self._summary_active_lbl = self._summary_card(
+            "WITH DELIVERIES",
+            "0",
+            "Customers with delivery history",
+            TEAL_DARK,
+        )
+        deliveries_card, self._summary_deliveries_lbl = self._summary_card(
+            "DELIVERY RECORDS",
+            "0",
+            "Total linked deliveries",
+            GRAY_5,
+        )
+        summary_row.addWidget(total_card, 1)
+        summary_row.addWidget(active_card, 1)
+        summary_row.addWidget(deliveries_card, 1)
+        c_lay.addLayout(summary_row)
 
         self._add_btn = QPushButton("+ Add Customer")
         self._add_btn.setCursor(Qt.PointingHandCursor)
         self._add_btn.setFont(inter(12, QFont.Medium))
-        self._add_btn.setFixedHeight(36)
-        self._add_btn.setMinimumWidth(230)
+        self._add_btn.setFixedHeight(38)
+        self._add_btn.setMinimumWidth(180)
         self._add_btn.setStyleSheet(f"""
-            QPushButton{{color:{WHITE};background:{TEAL};border:1px solid {TEAL};border-radius:4px;padding:0 18px;}}
+            QPushButton{{
+                color:{WHITE};
+                background:{TEAL};
+                border:1px solid {TEAL};
+                border-radius:7px;
+                padding:0 18px;
+            }}
             QPushButton:hover{{background:{TEAL_DARK};border-color:{TEAL_DARK};}}
         """)
         self._add_btn.clicked.connect(self._open_add)
 
         action_row = QHBoxLayout()
+        action_row.setContentsMargins(0, 0, 0, 2)
         action_row.setSpacing(12)
         action_row.addWidget(self._search, 1, Qt.AlignVCenter)
         action_row.addWidget(self._add_btn, 0, Qt.AlignRight | Qt.AlignVCenter)
         c_lay.addLayout(action_row)
-        c_lay.addSpacing(10)
 
         # Table card
         table_card = QFrame()
-        table_card.setMinimumHeight(640)
-        table_card.setMaximumHeight(640)
-        table_card.setStyleSheet(f"QFrame{{background:{WHITE};border:1px solid {GRAY_2};border-radius:6px;}}")
+        table_card.setObjectName("CustomerTableCard")
+        table_card.setMinimumHeight(540)
+        table_card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        table_card.setStyleSheet(
+            f"""
+            QFrame#CustomerTableCard{{
+                background:{WHITE};
+                border:1px solid {GRAY_2};
+                border-radius:8px;
+            }}
+            """
+        )
         t_lay = QVBoxLayout(table_card)
         t_lay.setContentsMargins(0, 0, 0, 0)
         t_lay.setSpacing(0)
 
         # Table header bar
         th_bar = QWidget()
-        th_bar.setFixedHeight(52)
-        th_bar.setStyleSheet(f"background:transparent;border:none;border-bottom:1px solid {GRAY_2};")
+        th_bar.setFixedHeight(56)
+        th_bar.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};")
         thb_lay = QHBoxLayout(th_bar)
         thb_lay.setContentsMargins(18, 0, 18, 0)
 
@@ -896,79 +967,49 @@ class CustomerView(QWidget):
         thb_lay.addWidget(self._count_lbl)
         t_lay.addWidget(th_bar)
 
-        # Table
-        self._model = QStandardItemModel()
-        self._model.setHorizontalHeaderLabels([
-            "Full Name", "Address", "Contact Number", "Notes", "Date Added", "Actions"
-        ])
+        self._customers_page = QWidget()
+        self._customers_page.setStyleSheet("background:transparent;border:none;")
+        customer_page_lay = QVBoxLayout(self._customers_page)
+        customer_page_lay.setContentsMargins(0, 0, 0, 0)
+        customer_page_lay.setSpacing(0)
 
-        self._proxy = QSortFilterProxyModel()
-        self._proxy.setSourceModel(self._model)
-        self._proxy.setFilterCaseSensitivity(Qt.CaseInsensitive)
-        self._proxy.setFilterKeyColumn(-1)
+        table_header = QWidget()
+        table_header.setFixedHeight(50)
+        table_header.setStyleSheet(f"background:#f4f8f7;border:none;border-bottom:1px solid {GRAY_2};")
+        header_lay = QGridLayout(table_header)
+        header_lay.setContentsMargins(16, 0, 16, 0)
+        header_lay.setHorizontalSpacing(10)
+        header_lay.setVerticalSpacing(0)
+        self._configure_customer_columns(header_lay)
 
-        self._table = QTableView()
-        self._table.setModel(self._proxy)
-        self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._table.setFocusPolicy(Qt.NoFocus)
-        self._table.setShowGrid(False)
-        self._table.setAlternatingRowColors(False)
-        self._table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._table.verticalHeader().setVisible(False)
-        self._table.horizontalHeader().setStretchLastSection(False)
-        self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Stretch)
-        self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        self._table.setStyleSheet(f"""
-            QTableView{{
-                background:transparent;border:none;
-                font-family:'{INTER_FAMILY}';font-size:12px;color:{GRAY_5};outline:none;
-                selection-background-color:{TEAL_PALE};
-            }}
-            QTableView::item{{
-                padding:10px 16px;
-                border-bottom:0.5px solid {GRAY_2};
-            }}
-            QTableView::item:selected{{
-                background:{TEAL_PALE};color:{TEAL_DARK};
-            }}
-            QHeaderView::section{{
-                background:{WHITE};color:{GRAY_4};
-                font-size:10px;font-weight:600;letter-spacing:1.5px;
-                padding:10px 16px 8px;border:none;
-                border-bottom:1px solid {GRAY_2};
-                font-family:'{INTER_FAMILY}';
-            }}
-            QScrollBar:vertical{{
-                background:transparent;
-                width:10px;
-                margin:8px 4px 8px 0;
-            }}
-            QScrollBar::handle:vertical{{
-                background:rgba(26,122,110,0.28);
-                min-height:28px;
-                border-radius:5px;
-            }}
-            QScrollBar::handle:vertical:hover{{
-                background:rgba(26,122,110,0.42);
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical{{
-                height:0;
-                background:transparent;
-                border:none;
-            }}
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical{{
-                background:transparent;
-            }}
-        """)
-        self._table.setStyleSheet(self._table.styleSheet() + owner_scrollbar_qss())
-        self._table.setItemDelegateForColumn(5, ActionDelegate(self._table, self))
-        self._table.verticalHeader().setDefaultSectionSize(56)
+        headers = [
+            ("CUSTOMER", Qt.AlignLeft | Qt.AlignVCenter),
+            ("ADDRESS", Qt.AlignLeft | Qt.AlignVCenter),
+            ("CONTACT", Qt.AlignLeft | Qt.AlignVCenter),
+            ("ORDERS", Qt.AlignCenter),
+            ("LAST", Qt.AlignCenter),
+            ("NOTES", Qt.AlignLeft | Qt.AlignVCenter),
+            ("ADDED", Qt.AlignCenter),
+            ("ACTIONS", Qt.AlignCenter),
+        ]
+        for col, (text, alignment) in enumerate(headers):
+            header_lay.addWidget(self._customer_header_label(text, alignment), 0, col)
+        customer_page_lay.addWidget(table_header)
+
+        self._customer_scroll = QScrollArea()
+        self._customer_scroll.setWidgetResizable(True)
+        self._customer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._customer_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self._customer_scroll.setStyleSheet(owner_scrollbar_qss())
+
+        self._customer_list = QWidget()
+        self._customer_list.setStyleSheet("background:transparent;border:none;")
+        self._customer_rows_lay = QVBoxLayout(self._customer_list)
+        self._customer_rows_lay.setContentsMargins(14, 14, 14, 14)
+        self._customer_rows_lay.setSpacing(8)
+
+        self._customer_scroll.setWidget(self._customer_list)
+        customer_page_lay.addWidget(self._customer_scroll)
 
         # Empty state
         self._empty_state = QWidget()
@@ -1012,10 +1053,10 @@ class CustomerView(QWidget):
         es_lay.addWidget(self._empty_sub)
 
         self._table_stack = QStackedWidget()
-        self._table_stack.addWidget(self._table)
+        self._table_stack.addWidget(self._customers_page)
         self._table_stack.addWidget(self._empty_state)
         t_lay.addWidget(self._table_stack)
-        c_lay.addWidget(table_card)
+        c_lay.addWidget(table_card, 1)
         scroll.setWidget(content)
         root.addWidget(scroll)
 
@@ -1025,6 +1066,202 @@ class CustomerView(QWidget):
         self._status_modal = StatusModal(self)
 
         self._refresh_empty_state()
+
+    def _summary_card(self, title, value, caption, color):
+        card = QFrame()
+        card.setStyleSheet(
+            f"""
+            QFrame {{
+                background:{WHITE};
+                border:1px solid {GRAY_2};
+                border-radius:8px;
+                border-top:3px solid {color};
+            }}
+            """
+        )
+        card.setFixedHeight(96)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+        lay = QVBoxLayout(card)
+        lay.setContentsMargins(18, 12, 18, 12)
+        lay.setSpacing(3)
+
+        title_lbl = QLabel(title)
+        title_lbl.setFont(inter(9, QFont.DemiBold))
+        title_lbl.setStyleSheet(
+            f"color:{GRAY_4};letter-spacing:1.2px;background:transparent;border:none;"
+        )
+
+        value_lbl = QLabel(value)
+        value_lbl.setFont(inter(19, QFont.DemiBold))
+        value_lbl.setMinimumHeight(28)
+        value_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        value_lbl.setStyleSheet(f"color:{color};background:transparent;border:none;")
+
+        caption_lbl = QLabel(caption)
+        caption_lbl.setFont(inter(10))
+        caption_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+        lay.addWidget(title_lbl)
+        lay.addWidget(value_lbl)
+        lay.addWidget(caption_lbl)
+        lay.addStretch()
+        return card, value_lbl
+
+    def _configure_customer_columns(self, layout):
+        widths = {
+            0: CUSTOMER_NAME_W,
+            1: CUSTOMER_ADDRESS_W,
+            2: CUSTOMER_CONTACT_W,
+            3: CUSTOMER_DELIVERIES_W,
+            4: CUSTOMER_LAST_W,
+            5: CUSTOMER_NOTES_W,
+            6: CUSTOMER_CREATED_W,
+            7: CUSTOMER_ACTIONS_W,
+        }
+        for column, width in widths.items():
+            layout.setColumnMinimumWidth(column, width)
+            layout.setColumnStretch(column, 0)
+        layout.setColumnStretch(1, 2)
+        layout.setColumnStretch(5, 1)
+
+    def _customer_header_label(self, text, alignment):
+        label = QLabel(text)
+        label.setFont(inter(9, QFont.DemiBold))
+        label.setAlignment(alignment)
+        label.setStyleSheet(
+            f"color:{GRAY_4};letter-spacing:1.2px;background:transparent;border:none;"
+        )
+        return label
+
+    def _clear_customer_rows(self):
+        if not hasattr(self, "_customer_rows_lay"):
+            return
+        while self._customer_rows_lay.count():
+            item = self._customer_rows_lay.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _build_customer_row(self, customer):
+        row = QFrame()
+        row.setObjectName("CustomerRow")
+        row.setFixedHeight(68)
+        row.setStyleSheet(
+            f"""
+            QFrame#CustomerRow {{
+                background:#fbfdfc;
+                border:1px solid {GRAY_2};
+                border-radius:6px;
+            }}
+            QFrame#CustomerRow:hover {{
+                background:#eef8f6;
+                border-color:#c9ddd9;
+            }}
+            """
+        )
+
+        grid = QGridLayout(row)
+        grid.setContentsMargins(14, 0, 14, 0)
+        grid.setHorizontalSpacing(10)
+        grid.setVerticalSpacing(0)
+        self._configure_customer_columns(grid)
+
+        grid.addWidget(self._customer_cell(customer.get("full_name", ""), TEAL_DARK, QFont.Medium), 0, 0)
+        grid.addWidget(self._customer_cell(customer.get("address", ""), GRAY_5), 0, 1)
+        grid.addWidget(self._customer_cell(customer.get("contact_number", ""), GRAY_5), 0, 2)
+        grid.addWidget(
+            self._customer_cell(
+                customer.get("total_deliveries", 0),
+                TEAL_DARK,
+                QFont.DemiBold,
+                Qt.AlignCenter,
+            ),
+            0,
+            3,
+        )
+        grid.addWidget(
+            self._customer_cell(customer.get("last_delivery", "-"), GRAY_5, QFont.Normal, Qt.AlignCenter),
+            0,
+            4,
+        )
+        grid.addWidget(self._customer_cell(customer.get("notes", "-"), GRAY_5), 0, 5)
+        grid.addWidget(
+            self._customer_cell(customer.get("created_at", "-"), GRAY_5, QFont.Normal, Qt.AlignCenter),
+            0,
+            6,
+        )
+        grid.addWidget(self._customer_actions_cell(customer), 0, 7)
+        return row
+
+    def _customer_cell(
+        self,
+        value,
+        color=GRAY_5,
+        weight=QFont.Normal,
+        alignment=Qt.AlignLeft | Qt.AlignVCenter,
+    ):
+        raw_text = str(value if value is not None else "-")
+        label = QLabel(trim_text(raw_text, 34))
+        label.setFont(inter(11, weight))
+        label.setAlignment(alignment)
+        label.setMinimumWidth(0)
+        label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        label.setToolTip(raw_text)
+        label.setStyleSheet(f"color:{color};background:transparent;border:none;")
+        return label
+
+    def _customer_actions_cell(self, customer):
+        wrapper = QWidget()
+        wrapper.setStyleSheet("background:transparent;border:none;")
+        layout = QHBoxLayout(wrapper)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(6)
+        layout.setAlignment(Qt.AlignCenter)
+
+        edit_btn = QPushButton("Edit")
+        edit_btn.setCursor(Qt.PointingHandCursor)
+        edit_btn.setFont(inter(10, QFont.Medium))
+        edit_btn.setFixedSize(48, 30)
+        edit_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                color:{WHITE};
+                background:{TEAL};
+                border:1px solid {TEAL};
+                border-radius:6px;
+            }}
+            QPushButton:hover {{
+                background:{TEAL_DARK};
+                border-color:{TEAL_DARK};
+            }}
+            """
+        )
+        edit_btn.clicked.connect(lambda _checked=False, item=customer: self._open_edit(item))
+
+        delete_btn = QPushButton("Delete")
+        delete_btn.setCursor(Qt.PointingHandCursor)
+        delete_btn.setFont(inter(10, QFont.Medium))
+        delete_btn.setFixedSize(58, 30)
+        delete_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                color:{RED_BTN};
+                background:{RED_BG};
+                border:1px solid #f4c7c7;
+                border-radius:6px;
+            }}
+            QPushButton:hover {{
+                background:#fbdada;
+                border-color:#e4a8a8;
+            }}
+            """
+        )
+        delete_btn.clicked.connect(lambda _checked=False, item=customer: self._open_delete(item))
+
+        layout.addWidget(edit_btn)
+        layout.addWidget(delete_btn)
+        return wrapper
 
     def _build_topbar(self):
         bar = QWidget()
@@ -1096,13 +1333,11 @@ class CustomerView(QWidget):
     def _open_add(self):
         self._form_modal.open_add(self._on_form_saved)
 
-    def _open_edit(self, row):
-        data = self._get_row_data(row)
-        self._form_modal.open_edit(data, self._on_form_saved)
+    def _open_edit(self, customer):
+        self._form_modal.open_edit(dict(customer), self._on_form_saved)
 
-    def _open_delete(self, row):
-        data = self._get_row_data(row)
-        self._delete_modal.open(data["full_name"], data["id"], self._on_delete_confirmed)
+    def _open_delete(self, customer):
+        self._delete_modal.open(customer["full_name"], customer["id"], self._on_delete_confirmed)
 
     def _on_form_saved(self, data, mode):
         if mode == "add":
@@ -1114,7 +1349,6 @@ class CustomerView(QWidget):
             )
             if ok:
                 self._refresh_visible_customers()
-                self._refresh_counts()
                 return True
             else:
                 self._form_modal.show_server_error(res)
@@ -1129,7 +1363,6 @@ class CustomerView(QWidget):
             )
             if ok:
                 self._refresh_visible_customers()
-                self._refresh_counts()
                 return True
             else:
                 self._form_modal.show_server_error(res)
@@ -1143,7 +1376,11 @@ class CustomerView(QWidget):
             self._show_error_message("Delete Customer Failed", res)
 
     def _on_search(self, text):
-        keyword = text.strip()
+        self._pending_search_text = text.strip()
+        self._search_timer.start()
+
+    def _perform_search(self):
+        keyword = self._pending_search_text
         if keyword == "":
             self._load_from_db()
             return
@@ -1154,55 +1391,54 @@ class CustomerView(QWidget):
             self._show_error_message("Search Failed", res)
 
     # ── Data helpers ──────────────────────────────────────────────────────────
-    def _get_row_data(self, proxy_row):
-        src_row = self._proxy.mapToSource(self._proxy.index(proxy_row, 0)).row()
+    def _customer_row_data(self, customer):
         return {
-            "id":             self._model.item(src_row, 0).data(Qt.UserRole),
-            "full_name":      self._model.item(src_row, 0).text(),
-            "address":        self._model.item(src_row, 1).text(),
-            "contact_number": self._model.item(src_row, 2).text(),
-            "notes":          self._model.item(src_row, 3).text(),
+            "id": customer.get("id"),
+            "full_name": customer.get("full_name", ""),
+            "address": customer.get("address", ""),
+            "contact_number": customer.get("contact_number", ""),
+            "total_deliveries": customer.get("total_deliveries", 0) or 0,
+            "last_delivery": customer.get("last_delivery", "") or "-",
+            "notes": customer.get("notes", "") or "-",
+            "created_at": customer.get("created_at", "") or "-",
         }
 
-    def _append_row(self, data):
-        import datetime
-        row_id = data.get("id") or (self._model.rowCount() + 1)
-        items = [
-            QStandardItem(data.get("full_name", "")),
-            QStandardItem(data.get("address", "")),
-            QStandardItem(data.get("contact_number", "")),
-            QStandardItem(data.get("notes", "") or "—"),
-            QStandardItem(datetime.date.today().strftime("%b %d, %Y")),
-            QStandardItem(""),
-        ]
-        items[0].setData(row_id, Qt.UserRole)
-        for item in items:
-            item.setFont(inter(12))
-            item.setForeground(QColor(GRAY_5))
-        self._model.appendRow(items)
-        self._refresh_empty_state()
-
-    def _update_row(self, data):
-        for row in range(self._model.rowCount()):
-            if self._model.item(row, 0).data(Qt.UserRole) == data.get("id"):
-                self._model.item(row, 0).setText(data.get("full_name", ""))
-                self._model.item(row, 1).setText(data.get("address", ""))
-                self._model.item(row, 2).setText(data.get("contact_number", ""))
-                self._model.item(row, 3).setText(data.get("notes", "") or "—")
-                break
-
     def load_customers(self, customers):
-        self._model.setRowCount(0)
-        for c in customers:
-            self._append_row(c)
+        self._visible_customers = [self._customer_row_data(c) for c in customers]
+        self._clear_customer_rows()
+
+        for customer in self._visible_customers:
+            self._customer_rows_lay.addWidget(self._build_customer_row(customer))
+        self._customer_rows_lay.addStretch()
+
+        self._refresh_summary_cards(self._visible_customers)
         self._refresh_counts()
 
+    def _refresh_summary_cards(self, customers):
+        total_customers = len(customers)
+        with_deliveries = 0
+        delivery_records = 0
+
+        for customer in customers:
+            try:
+                total_deliveries = int(customer.get("total_deliveries", 0) or 0)
+            except (TypeError, ValueError):
+                total_deliveries = 0
+            if total_deliveries > 0:
+                with_deliveries += 1
+            delivery_records += total_deliveries
+
+        self._summary_total_lbl.setText(str(total_customers))
+        self._summary_active_lbl.setText(str(with_deliveries))
+        self._summary_deliveries_lbl.setText(str(delivery_records))
+
     def _refresh_counts(self):
-        self._count_lbl.setText(f"{self._proxy.rowCount()} record{'s' if self._proxy.rowCount() != 1 else ''}")
+        count = len(self._visible_customers)
+        self._count_lbl.setText(f"{count} record{'s' if count != 1 else ''}")
         self._refresh_empty_state()
 
     def _refresh_empty_state(self):
-        has_rows = self._proxy.rowCount() > 0
+        has_rows = len(self._visible_customers) > 0
         keyword = self._search.text().strip()
         if keyword:
             self._empty_title.setText("No matching customers")
@@ -1212,7 +1448,7 @@ class CustomerView(QWidget):
         else:
             self._empty_title.setText("No customers yet")
             self._empty_sub.setText('Click "+ Add Customer" to add your first customer.')
-        self._table_stack.setCurrentWidget(self._table if has_rows else self._empty_state)
+        self._table_stack.setCurrentWidget(self._customers_page if has_rows else self._empty_state)
 
     # --- Data loading helpers ---
     def reset_view_state(self):
@@ -1220,6 +1456,8 @@ class CustomerView(QWidget):
         self._delete_modal.reset_state()
         self._status_modal.reset_state()
 
+        self._search_timer.stop()
+        self._pending_search_text = ""
         if self._search.text():
             self._search.blockSignals(True)
             self._search.clear()
@@ -1265,83 +1503,6 @@ class CustomerView(QWidget):
             eyebrow="Request not completed",
             button_text="Close",
         )
-
-
-# ── Action delegate — Edit / Delete buttons per row ───────────────────────────
-from PySide6.QtWidgets import QStyledItemDelegate, QStyleOptionButton, QStyle, QApplication as _QApp
-from PySide6.QtCore import QRect, QSize
-
-
-class ActionDelegate(QStyledItemDelegate):
-    def __init__(self, table, page):
-        super().__init__(table)
-        self._table = table
-        self._page  = page
-
-    def paint(self, painter, option, index):
-        painter.save()
-
-        if option.state & QStyle.State_Selected:
-            painter.fillRect(option.rect, QColor(TEAL_PALE))
-        else:
-            painter.fillRect(option.rect, QColor(WHITE))
-
-        painter.setPen(QColor(GRAY_2))
-        painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
-
-        btn_w = 58
-        btn_h = 26
-        gap   = 6
-        total = btn_w * 2 + gap
-        x     = option.rect.x() + (option.rect.width() - total) // 2
-        y     = option.rect.y() + (option.rect.height() - btn_h) // 2
-
-        painter.setRenderHint(QPainter.Antialiasing)
-
-        # Edit — solid teal
-        edit_rect = QRect(x, y, btn_w, btn_h)
-        painter.setBrush(QColor(TEAL))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(edit_rect, 5, 5)
-        painter.setFont(inter(10, QFont.Medium))
-        painter.setPen(QColor(WHITE))
-        painter.drawText(edit_rect, Qt.AlignCenter, "Edit")
-
-        # Delete — soft red
-        del_rect = QRect(x + btn_w + gap, y, btn_w, btn_h)
-        painter.setBrush(QColor(RED_BG))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(del_rect, 5, 5)
-        painter.setFont(inter(10, QFont.Medium))
-        painter.setPen(QColor(RED_BTN))
-        painter.drawText(del_rect, Qt.AlignCenter, "Delete")
-
-        painter.restore()
-
-    def sizeHint(self, option, index):
-        return QSize(140, 56)
-
-    def editorEvent(self, event, model, option, index):
-        from PySide6.QtCore import QEvent
-        if event.type() == QEvent.MouseButtonRelease:
-            btn_w = 58
-            btn_h = 26
-            gap   = 6
-            total = btn_w * 2 + gap
-            x     = option.rect.x() + (option.rect.width() - total) // 2
-            y     = option.rect.y() + (option.rect.height() - btn_h) // 2
-
-            pos       = event.position().toPoint()
-            edit_rect = QRect(x, y, btn_w, btn_h)
-            del_rect  = QRect(x + btn_w + gap, y, btn_w, btn_h)
-
-            if edit_rect.contains(pos):
-                self._page._open_edit(index.row())
-                return True
-            if del_rect.contains(pos):
-                self._page._open_delete(index.row())
-                return True
-        return False
 
 
 # ── Standalone test ───────────────────────────────────────────────────────────

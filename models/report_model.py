@@ -22,11 +22,15 @@ class ReportModel:
             cursor.execute(
                 """
                 SELECT
+                    COUNT(*)                                               AS snapshot_count,
                     COALESCE(SUM(total_deliveries), 0)                      AS total_deliveries,
                     COALESCE(SUM(total_delivered), 0)                       AS total_delivered,
                     COALESCE(SUM(total_cancelled), 0)                       AS total_cancelled,
                     COALESCE(SUM(total_pending), 0)                         AS total_pending,
-                    COALESCE(SUM(total_sales), 0)                           AS total_sales
+                    COALESCE(SUM(total_in_transit), 0)                      AS total_in_transit,
+                    COALESCE(SUM(total_sales), 0)                           AS total_sales,
+                    COALESCE(SUM(total_paid), 0)                            AS total_paid,
+                    COALESCE(SUM(total_unpaid), 0)                          AS total_unpaid
                 FROM daily_reports
                 WHERE report_date BETWEEN %s AND %s
                 """,
@@ -49,11 +53,15 @@ class ReportModel:
             cursor.execute(
                 """
                 SELECT
+                    COUNT(*)                                               AS snapshot_count,
                     COALESCE(SUM(total_deliveries), 0)                      AS total_deliveries,
                     COALESCE(SUM(total_delivered), 0)                       AS total_delivered,
                     COALESCE(SUM(total_cancelled), 0)                       AS total_cancelled,
                     COALESCE(SUM(total_pending), 0)                         AS total_pending,
-                    COALESCE(SUM(total_sales), 0)                           AS total_sales
+                    COALESCE(SUM(total_in_transit), 0)                      AS total_in_transit,
+                    COALESCE(SUM(total_sales), 0)                           AS total_sales,
+                    COALESCE(SUM(total_paid), 0)                            AS total_paid,
+                    COALESCE(SUM(total_unpaid), 0)                          AS total_unpaid
                 FROM weekly_reports
                 WHERE week_start >= %s
                   AND week_end <= %s
@@ -77,11 +85,15 @@ class ReportModel:
             cursor.execute(
                 """
                 SELECT
+                    COUNT(*)                                               AS snapshot_count,
                     COALESCE(SUM(total_deliveries), 0)                      AS total_deliveries,
                     COALESCE(SUM(total_delivered), 0)                       AS total_delivered,
                     COALESCE(SUM(total_cancelled), 0)                       AS total_cancelled,
                     COALESCE(SUM(total_pending), 0)                         AS total_pending,
-                    COALESCE(SUM(total_sales), 0)                           AS total_sales
+                    COALESCE(SUM(total_in_transit), 0)                      AS total_in_transit,
+                    COALESCE(SUM(total_sales), 0)                           AS total_sales,
+                    COALESCE(SUM(total_paid), 0)                            AS total_paid,
+                    COALESCE(SUM(total_unpaid), 0)                          AS total_unpaid
                 FROM monthly_reports
                 WHERE report_month BETWEEN %s AND %s
                 """,
@@ -104,30 +116,22 @@ class ReportModel:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT
-                    COUNT(d.id)                                             AS total_deliveries,
-                    SUM(CASE WHEN d.status = 'delivered'
-                             THEN 1 ELSE 0 END)                            AS total_delivered,
-                    SUM(CASE WHEN d.status = 'cancelled'
-                             THEN 1 ELSE 0 END)                            AS total_cancelled,
-                    SUM(CASE WHEN d.status = 'pending'
-                             THEN 1 ELSE 0 END)                            AS total_pending,
-                    SUM(CASE WHEN d.status = 'in_transit'
-                             THEN 1 ELSE 0 END)                            AS total_in_transit,
-                    COALESCE(SUM(t.total_amount), 0)                        AS total_sales,
-                    COALESCE(SUM(
-                        CASE WHEN t.payment_status = 'paid'
-                             THEN t.total_amount ELSE 0 END
-                    ), 0)                                                   AS total_paid,
-                    COALESCE(SUM(
-                        CASE WHEN t.payment_status = 'unpaid'
-                             THEN t.total_amount ELSE 0 END
-                    ), 0)                                                   AS total_unpaid,
-                    COALESCE(AVG(t.total_amount), 0)                        AS avg_transaction_value,
-                    DATE_FORMAT(%s, '%%b %%d, %%Y')                        AS date_from_fmt,
-                    DATE_FORMAT(%s, '%%b %%d, %%Y')                        AS date_to_fmt
-                FROM deliveries d
-                LEFT JOIN transactions t ON t.delivery_id = d.id
-                WHERE d.schedule_date BETWEEN %s AND %s
+                    COUNT(*)                                                AS total_deliveries,
+                    COALESCE(SUM(delivered_count), 0)                       AS total_delivered,
+                    COALESCE(SUM(cancelled_count), 0)                       AS total_cancelled,
+                    COALESCE(SUM(pending_count), 0)                         AS total_pending,
+                    COALESCE(SUM(in_transit_count), 0)                      AS total_in_transit,
+                    COALESCE(SUM(recognized_sales), 0)                      AS total_sales,
+                    COALESCE(SUM(paid_sales), 0)                            AS total_paid,
+                    COALESCE(SUM(unpaid_sales), 0)                          AS total_unpaid,
+                    COALESCE(AVG(
+                        CASE WHEN delivery_status = 'delivered'
+                             THEN recognized_sales END
+                    ), 0)                                                   AS avg_transaction_value,
+                    DATE_FORMAT(%s, '%b %d, %Y')                          AS date_from_fmt,
+                    DATE_FORMAT(%s, '%b %d, %Y')                          AS date_to_fmt
+                FROM vw_report_delivery_financials
+                WHERE schedule_date BETWEEN %s AND %s
             """, (date_from, date_to, date_from, date_to))
             return cursor.fetchone()
         finally:
@@ -161,39 +165,21 @@ class ReportModel:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
-                WITH delivery_base AS (
-                    SELECT
-                        d.id                                                AS delivery_id,
-                        d.schedule_date,
-                        DATE_FORMAT(d.schedule_date, '%%b %%d, %%Y')       AS date_fmt,
-                        TRIM(c.full_name)                                   AS customer,
-                        d.status                                            AS delivery_status,
-                        COALESCE(t.payment_status, 'unpaid')                AS payment_status,
-                        COALESCE(t.total_amount, 0)                         AS total_amount
-                    FROM deliveries d
-                    INNER JOIN customers c ON c.id = d.customer_id
-                    LEFT  JOIN transactions t ON t.delivery_id = d.id
-                    WHERE d.schedule_date BETWEEN %s AND %s
-                )
                 SELECT
-                    db.delivery_id                                          AS id,
-                    db.schedule_date,
-                    db.date_fmt                                             AS date,
-                    db.customer,
-                    CONCAT(
-                        TRIM(p.name), ' ',
-                        COALESCE(p.cylinder_size, '')
-                    )                                                       AS product,
-                    di.quantity,
-                    di.type,
-                    ROUND(di.quantity * di.price_at_delivery, 2)            AS amount,
-                    db.delivery_status                                      AS status,
-                    db.payment_status,
-                    db.total_amount
-                FROM delivery_base db
-                INNER JOIN delivery_items di ON di.delivery_id = db.delivery_id
-                INNER JOIN lpg_products   p  ON p.id           = di.product_id
-                ORDER BY db.schedule_date DESC, db.delivery_id ASC, p.name ASC
+                    delivery_id                                             AS id,
+                    schedule_date,
+                    DATE_FORMAT(schedule_date, '%b %d, %Y')                AS date,
+                    customer_name                                           AS customer,
+                    product_name                                            AS product,
+                    quantity,
+                    type,
+                    line_amount                                             AS amount,
+                    delivery_status                                         AS status,
+                    payment_status,
+                    line_amount                                             AS total_amount
+                FROM vw_report_delivery_lines
+                WHERE schedule_date BETWEEN %s AND %s
+                ORDER BY schedule_date DESC, delivery_id ASC, product_name ASC
             """, (date_from, date_to))
             return cursor.fetchall()
         finally:
@@ -211,12 +197,15 @@ class ReportModel:
             cursor.execute("""
                 SELECT
                     dr.report_date,
-                    DATE_FORMAT(dr.report_date, '%%b %%d, %%Y')            AS report_date_fmt,
+                    DATE_FORMAT(dr.report_date, '%b %d, %Y')              AS report_date_fmt,
                     dr.total_deliveries,
                     dr.total_delivered,
                     dr.total_cancelled,
                     dr.total_pending,
+                    dr.total_in_transit,
                     ROUND(dr.total_sales, 2)                                AS total_sales,
+                    ROUND(dr.total_paid, 2)                                 AS total_paid,
+                    ROUND(dr.total_unpaid, 2)                               AS total_unpaid,
                     DATEDIFF(CURDATE(), dr.report_date)                    AS days_ago,
                     ROUND(
                         SUM(dr.total_sales) OVER (
@@ -244,13 +233,16 @@ class ReportModel:
                 SELECT
                     wr.week_start,
                     wr.week_end,
-                    DATE_FORMAT(wr.week_start, '%%b %%d')                  AS week_start_fmt,
-                    DATE_FORMAT(wr.week_end,   '%%b %%d, %%Y')             AS week_end_fmt,
+                    DATE_FORMAT(wr.week_start, '%b %d')                   AS week_start_fmt,
+                    DATE_FORMAT(wr.week_end,   '%b %d, %Y')               AS week_end_fmt,
                     wr.total_deliveries,
                     wr.total_delivered,
                     wr.total_cancelled,
                     wr.total_pending,
+                    wr.total_in_transit,
                     ROUND(wr.total_sales, 2)                                AS total_sales,
+                    ROUND(wr.total_paid, 2)                                 AS total_paid,
+                    ROUND(wr.total_unpaid, 2)                               AS total_unpaid,
                     RANK() OVER (
                         ORDER BY wr.total_sales DESC
                     )                                                       AS sales_rank
@@ -275,12 +267,15 @@ class ReportModel:
             cursor.execute("""
                 SELECT
                     mr.report_month,
-                    DATE_FORMAT(mr.report_month, '%%M %%Y')                AS report_month_fmt,
+                    DATE_FORMAT(mr.report_month, '%M %Y')                 AS report_month_fmt,
                     mr.total_deliveries,
                     mr.total_delivered,
                     mr.total_cancelled,
                     mr.total_pending,
+                    mr.total_in_transit,
                     ROUND(mr.total_sales, 2)                                AS total_sales,
+                    ROUND(mr.total_paid, 2)                                 AS total_paid,
+                    ROUND(mr.total_unpaid, 2)                               AS total_unpaid,
                     ROUND(
                         SUM(mr.total_sales) OVER (
                             PARTITION BY YEAR(mr.report_month)
@@ -306,30 +301,27 @@ class ReportModel:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT
-                    c.id                                                    AS customer_id,
-                    TRIM(c.full_name)                                       AS customer_name,
-                    COUNT(DISTINCT d.id)                                    AS total_deliveries,
-                    SUM(CASE WHEN d.status = 'delivered'
-                             THEN 1 ELSE 0 END)                            AS completed_deliveries,
-                    COALESCE(SUM(t.total_amount), 0)                        AS total_spent,
-                    ROUND(COALESCE(SUM(t.total_amount), 0), 2)              AS total_spent_rounded,
+                    customer_id,
+                    customer_name,
+                    COUNT(*)                                                AS total_deliveries,
+                    COALESCE(SUM(delivered_count), 0)                       AS completed_deliveries,
+                    COALESCE(SUM(recognized_sales), 0)                      AS total_spent,
+                    ROUND(COALESCE(SUM(recognized_sales), 0), 2)            AS total_spent_rounded,
                     RANK() OVER (
-                        ORDER BY COALESCE(SUM(t.total_amount), 0) DESC
+                        ORDER BY COALESCE(SUM(recognized_sales), 0) DESC
                     )                                                       AS spending_rank,
                     ROUND(
-                        COALESCE(SUM(t.total_amount), 0)
+                        COALESCE(SUM(recognized_sales), 0)
                         / NULLIF((
-                            SELECT SUM(t2.total_amount)
-                            FROM transactions t2
-                            INNER JOIN deliveries d2 ON d2.id = t2.delivery_id
-                            WHERE d2.schedule_date BETWEEN %s AND %s
+                            SELECT SUM(recognized_sales)
+                            FROM vw_report_delivery_financials
+                            WHERE schedule_date BETWEEN %s AND %s
                         ), 0) * 100, 2
                     )                                                       AS revenue_share_pct
-                FROM customers c
-                INNER JOIN deliveries d   ON d.customer_id  = c.id
-                LEFT  JOIN transactions t ON t.delivery_id  = d.id
-                WHERE d.schedule_date BETWEEN %s AND %s
-                GROUP BY c.id, c.full_name
+                FROM vw_report_delivery_financials
+                WHERE schedule_date BETWEEN %s AND %s
+                GROUP BY customer_id, customer_name
+                HAVING total_spent > 0
                 ORDER BY total_spent DESC
                 LIMIT %s
             """, (date_from, date_to, date_from, date_to, limit))
@@ -348,25 +340,22 @@ class ReportModel:
             cursor = conn.cursor(dictionary=True)
             cursor.execute("""
                 SELECT
-                    p.id                                                    AS product_id,
-                    CONCAT(TRIM(p.name), ' ', COALESCE(p.cylinder_size,''))
-                                                                            AS product_name,
-                    SUM(di.quantity)                                        AS total_quantity,
-                    COUNT(DISTINCT di.delivery_id)                          AS total_orders,
-                    ROUND(SUM(di.quantity * di.price_at_delivery), 2)       AS total_revenue,
+                    product_id,
+                    product_name,
+                    SUM(quantity)                                           AS total_quantity,
+                    COUNT(DISTINCT delivery_id)                             AS total_orders,
+                    ROUND(SUM(recognized_line_sales), 2)                    AS total_revenue,
                     ROUND(
-                        SUM(di.quantity * di.price_at_delivery)
+                        SUM(recognized_line_sales)
                         / NULLIF(
-                            SUM(SUM(di.quantity * di.price_at_delivery))
+                            SUM(SUM(recognized_line_sales))
                             OVER (), 0
                         ) * 100, 2
                     )                                                       AS revenue_share_pct
-                FROM lpg_products p
-                INNER JOIN delivery_items di ON di.product_id  = p.id
-                INNER JOIN deliveries     d  ON d.id           = di.delivery_id
-                WHERE d.schedule_date BETWEEN %s AND %s
-                  AND d.status = 'delivered'
-                GROUP BY p.id, p.name, p.cylinder_size
+                FROM vw_report_delivery_lines
+                WHERE schedule_date BETWEEN %s AND %s
+                  AND delivery_status = 'delivered'
+                GROUP BY product_id, product_name
                 ORDER BY total_revenue DESC
             """, (date_from, date_to))
             return cursor.fetchall()
@@ -375,6 +364,63 @@ class ReportModel:
             if conn:   conn.close()
 
     
+    @staticmethod
+    def get_report_insights(date_from, date_to):
+        defaults = {
+            "peak_sales_day": "",
+            "peak_sales_amount": 0,
+            "most_sold_product": "",
+            "most_sold_product_quantity": 0,
+            "most_sold_product_revenue": 0,
+        }
+        conn = None
+        cursor = None
+        try:
+            conn = get_connection()
+            cursor = conn.cursor(dictionary=True)
+
+            cursor.execute("""
+                SELECT
+                    DAYNAME(schedule_date)                                 AS peak_sales_day,
+                    ROUND(COALESCE(SUM(recognized_sales), 0), 2)            AS peak_sales_amount
+                FROM vw_report_delivery_financials
+                WHERE schedule_date BETWEEN %s AND %s
+                  AND delivery_status = 'delivered'
+                GROUP BY DAYOFWEEK(schedule_date), DAYNAME(schedule_date)
+                HAVING peak_sales_amount > 0
+                ORDER BY peak_sales_amount DESC, DAYOFWEEK(schedule_date) ASC
+                LIMIT 1
+            """, (date_from, date_to))
+            peak_day = cursor.fetchone() or {}
+
+            cursor.execute("""
+                SELECT
+                    product_name                                            AS most_sold_product,
+                    COALESCE(SUM(quantity), 0)                              AS most_sold_product_quantity,
+                    ROUND(COALESCE(SUM(recognized_line_sales), 0), 2)       AS most_sold_product_revenue
+                FROM vw_report_delivery_lines
+                WHERE schedule_date BETWEEN %s AND %s
+                  AND delivery_status = 'delivered'
+                GROUP BY product_id, product_name
+                HAVING most_sold_product_quantity > 0
+                ORDER BY most_sold_product_quantity DESC,
+                         most_sold_product_revenue DESC,
+                         product_name ASC
+                LIMIT 1
+            """, (date_from, date_to))
+            most_sold = cursor.fetchone() or {}
+
+            insights = defaults.copy()
+            insights.update(peak_day)
+            insights.update(most_sold)
+            return insights
+        finally:
+            if cursor:
+                cursor.close()
+            if conn:
+                conn.close()
+
+
     @staticmethod
     def get_period_comparison(current_from, current_to):
         conn   = None
@@ -400,23 +446,21 @@ class ReportModel:
             cursor.execute("""
                 SELECT
                     'current'                                               AS period,
-                    COUNT(d.id)                                             AS total_deliveries,
-                    SUM(CASE WHEN d.status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
-                    ROUND(COALESCE(SUM(t.total_amount), 0), 2)              AS total_sales
-                FROM deliveries d
-                LEFT JOIN transactions t ON t.delivery_id = d.id
-                WHERE d.schedule_date BETWEEN %s AND %s
+                    COUNT(*)                                                AS total_deliveries,
+                    COALESCE(SUM(delivered_count), 0)                       AS delivered,
+                    ROUND(COALESCE(SUM(recognized_sales), 0), 2)            AS total_sales
+                FROM vw_report_delivery_financials
+                WHERE schedule_date BETWEEN %s AND %s
 
                 UNION ALL
 
                 SELECT
                     'previous'                                              AS period,
-                    COUNT(d2.id)                                            AS total_deliveries,
-                    SUM(CASE WHEN d2.status = 'delivered' THEN 1 ELSE 0 END) AS delivered,
-                    ROUND(COALESCE(SUM(t2.total_amount), 0), 2)             AS total_sales
-                FROM deliveries d2
-                LEFT JOIN transactions t2 ON t2.delivery_id = d2.id
-                WHERE d2.schedule_date BETWEEN %s AND %s
+                    COUNT(*)                                                AS total_deliveries,
+                    COALESCE(SUM(delivered_count), 0)                       AS delivered,
+                    ROUND(COALESCE(SUM(recognized_sales), 0), 2)            AS total_sales
+                FROM vw_report_delivery_financials
+                WHERE schedule_date BETWEEN %s AND %s
             """, (cf, ct, prev_from, prev_to))
             return cursor.fetchall()
         finally:
