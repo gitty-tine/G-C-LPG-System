@@ -148,9 +148,10 @@ class DeliveryModel:
                     CONCAT(TRIM(p.name), ' ', COALESCE(p.cylinder_size,''))
                                                                             AS display_name,
                     p.refill_price,
-                    p.new_tank_price
-                FROM (SELECT 1) dummy
-                RIGHT JOIN lpg_products p ON 1 = 1
+                    p.new_tank_price,
+                    p.is_active
+                FROM lpg_products p
+                WHERE p.is_active = 1
                 ORDER BY p.name ASC
             """)
             return cursor.fetchall()
@@ -169,7 +170,20 @@ class DeliveryModel:
 
             conn.start_transaction()
 
-            
+            product_ids = sorted({item["product_id"] for item in items})
+            if not product_ids:
+                raise ValueError("Please add at least one product.")
+            placeholders = ", ".join(["%s"] * len(product_ids))
+            cursor.execute(f"""
+                SELECT id
+                FROM lpg_products
+                WHERE is_active = 1
+                  AND id IN ({placeholders})
+            """, tuple(product_ids))
+            active_ids = {row["id"] for row in cursor.fetchall()}
+            if any(product_id not in active_ids for product_id in product_ids):
+                raise ValueError("One or more selected products are no longer active. Please refresh the product list.")
+
             cursor.callproc("sp_create_delivery", [
                 customer_id,
                 user_id,

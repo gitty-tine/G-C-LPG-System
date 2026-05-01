@@ -12,8 +12,9 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QHBoxLayout, QVBoxLayout,
+    QGridLayout,
     QLabel, QPushButton, QFrame, QScrollArea, QSizePolicy,
-    QTableWidget, QTableWidgetItem, QHeaderView, QLineEdit,
+    QLineEdit,
     QGraphicsDropShadowEffect, QStackedWidget, QMessageBox, QToolButton
 )
 from controllers.account_controller import AccountController
@@ -1262,6 +1263,135 @@ class DashboardView(QMainWindow):
             return "No items"
         return "\n".join(cleaned)
 
+    @staticmethod
+    def _configure_dashboard_delivery_columns(layout):
+        widths = {
+            0: 172,
+            2: 126,
+            3: 116,
+        }
+        for column, width in widths.items():
+            layout.setColumnMinimumWidth(column, width)
+            layout.setColumnStretch(column, 0)
+        layout.setColumnMinimumWidth(1, 180)
+        layout.setColumnStretch(1, 1)
+
+    def _dashboard_table_header_label(self, text, alignment=Qt.AlignLeft | Qt.AlignVCenter):
+        label = QLabel(text)
+        label.setFont(inter(10, QFont.DemiBold))
+        label.setAlignment(alignment)
+        label.setStyleSheet(
+            f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;"
+        )
+        return label
+
+    def _dashboard_delivery_status_pill(self, status):
+        status_style = {
+            "DELIVERED":  (GREEN_BG,   GREEN),
+            "IN TRANSIT": (TEAL_PALE2, TEAL_DARK),
+            "PENDING":    (AMBER_BG,   AMBER),
+            "CANCELLED":  (RED_BG,     RED),
+        }
+        bg, fg = status_style.get(status, (GRAY_2, GRAY_5))
+        pill = QLabel(status)
+        pill.setFont(inter(9, QFont.DemiBold))
+        pill.setAlignment(Qt.AlignCenter)
+        pill.setFixedHeight(26)
+        pill.setStyleSheet(
+            f"background:{bg};color:{fg};border:1px solid rgba(0,0,0,0.03);"
+            "border-radius:13px;padding:4px 10px;letter-spacing:0.5px;"
+        )
+        return pill
+
+    def _build_dashboard_delivery_row(self, row):
+        name = self._text(row.get("customer_name"), fallback="Unknown customer")
+        phone = self._text(row.get("contact"), fallback="No contact")
+        addr = self._text(row.get("address"), fallback="No address")
+        prod = self._text(row.get("product_summary"), fallback="-")
+        product_items = self._split_delivery_products(prod)
+        status = self._text(row.get("status"), fallback="PENDING").upper()
+
+        item = QFrame()
+        item.setObjectName("DashboardDeliveryRow")
+        item.setFixedHeight(72)
+        item.setStyleSheet(
+            f"""
+            QFrame#DashboardDeliveryRow {{
+                background:#fbfdfc;
+                border:1px solid #edf2f0;
+                border-radius:6px;
+            }}
+            QFrame#DashboardDeliveryRow:hover {{
+                background:#eef8f6;
+                border-color:#c9ddd9;
+            }}
+            """
+        )
+
+        grid = QGridLayout(item)
+        grid.setContentsMargins(14, 0, 14, 0)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(0)
+        self._configure_dashboard_delivery_columns(grid)
+
+        customer_cell = QWidget()
+        customer_cell.setStyleSheet("background:transparent;border:none;")
+        customer_lay = QVBoxLayout(customer_cell)
+        customer_lay.setContentsMargins(0, 0, 0, 0)
+        customer_lay.setSpacing(2)
+        customer_lay.setAlignment(Qt.AlignVCenter)
+
+        name_lbl = QLabel(name)
+        name_lbl.setFont(inter(11, QFont.Medium))
+        name_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+        name_lbl.setToolTip(name)
+
+        phone_lbl = QLabel(phone)
+        phone_lbl.setFont(inter(10))
+        phone_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        phone_lbl.setToolTip(phone)
+
+        customer_lay.addWidget(name_lbl)
+        customer_lay.addWidget(phone_lbl)
+
+        address_lbl = QLabel(addr)
+        address_lbl.setFont(inter(10))
+        address_lbl.setWordWrap(True)
+        address_lbl.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        address_lbl.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+        address_lbl.setToolTip(addr)
+
+        product_cell = QWidget()
+        product_cell.setStyleSheet("background:transparent;border:none;")
+        product_lay = QHBoxLayout(product_cell)
+        product_lay.setContentsMargins(0, 0, 0, 0)
+        product_lay.setAlignment(Qt.AlignCenter)
+
+        item_count = len(product_items)
+        count_text = f"{item_count} item" if item_count == 1 else f"{item_count} items"
+        product_badge = QLabel(count_text if product_items else "No items")
+        product_badge.setFont(inter(9, QFont.DemiBold))
+        product_badge.setAlignment(Qt.AlignCenter)
+        product_badge.setToolTip(self._delivery_products_tooltip(product_items))
+        product_badge.setStyleSheet(
+            f"color:{TEAL_DARK};background:{TEAL_PALE};border:1px solid {TEAL_PALE2};"
+            "border-radius:11px;padding:4px 10px;"
+        )
+        product_lay.addWidget(product_badge)
+
+        status_cell = QWidget()
+        status_cell.setStyleSheet("background:transparent;border:none;")
+        status_lay = QHBoxLayout(status_cell)
+        status_lay.setContentsMargins(0, 0, 0, 0)
+        status_lay.setAlignment(Qt.AlignCenter)
+        status_lay.addWidget(self._dashboard_delivery_status_pill(status))
+
+        grid.addWidget(customer_cell, 0, 0)
+        grid.addWidget(address_lbl, 0, 1)
+        grid.addWidget(product_cell, 0, 2)
+        grid.addWidget(status_cell, 0, 3)
+        return item
+
     def _display_name(self):
         full_name = str(self._user.get("full_name", "") or "").strip()
         if full_name:
@@ -2022,8 +2152,13 @@ class DashboardView(QMainWindow):
         return scroll
     # ── Delivery table ────────────────────────────────────────────────────────
     def _build_delivery_table(self):
+        rows = self._dashboard_data.get("todays_deliveries", [])
+        preview_rows = rows[:10]
+
         card = QFrame()
         card.setObjectName("dashboardTableCard")
+        card.setMinimumHeight(540)
+        card.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         card.setStyleSheet(
             f"QFrame#dashboardTableCard{{background:{WHITE};border:1px solid {GRAY_2};border-radius:8px;}}"
         )
@@ -2041,6 +2176,25 @@ class DashboardView(QMainWindow):
         t = QLabel("Today's Deliveries")
         t.setFont(playfair(15, QFont.Medium))
         t.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+
+        shown_count = len(preview_rows)
+        total_count = len(rows)
+        count_text = f"{shown_count} of {total_count}" if total_count > shown_count else f"{total_count} today"
+        count_chip = QLabel(count_text)
+        count_chip.setFont(inter(10, QFont.Medium))
+        count_chip.setAlignment(Qt.AlignCenter)
+        count_chip.setFixedHeight(28)
+        count_chip.setStyleSheet(
+            f"""
+            QLabel {{
+                color:{TEAL_DARK};
+                background:{TEAL_PALE};
+                border:1px solid #cce5e1;
+                border-radius:14px;
+                padding:0 12px;
+            }}
+            """
+        )
 
         va = QPushButton("View all →")
         va.setCursor(Qt.PointingHandCursor)
@@ -2065,152 +2219,48 @@ class DashboardView(QMainWindow):
 
         h_lay.addWidget(t)
         h_lay.addStretch()
+        h_lay.addWidget(count_chip)
         h_lay.addWidget(va)
         lay.addWidget(head)
 
-        table = QTableWidget()
-        table.setColumnCount(4)
-        table.setHorizontalHeaderLabels(["CUSTOMER", "ADDRESS", "PRODUCT", "STATUS"])
-        table.horizontalHeader().setDefaultAlignment(Qt.AlignCenter | Qt.AlignVCenter)
-        table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Fixed)
-        table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        table.horizontalHeader().setSectionResizeMode(3, QHeaderView.Fixed)
-        table.verticalHeader().setVisible(False)
-        table.setEditTriggers(QTableWidget.NoEditTriggers)
-        table.setSelectionBehavior(QTableWidget.SelectRows)
-        table.setFocusPolicy(Qt.NoFocus)
-        table.setShowGrid(False)
-        table.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
-        table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        table.setWordWrap(True)
-        table.setTextElideMode(Qt.ElideNone)
-        table.setStyleSheet(f"""
-            QTableWidget{{
-                background:transparent;border:none;
-                font-family:'{INTER_FAMILY}';font-size:13px;color:{GRAY_5};outline:none;
-                selection-background-color:{TEAL_PALE};
-            }}
-            QTableWidget::item{{padding:0;border-bottom:1px solid #edf2f0;}}
-            QTableWidget::item:selected{{background:{TEAL_PALE};color:{TEAL_DARK};}}
-            QHeaderView::section{{
-                background:#f4f8f7;color:{GRAY_5};
-                font-size:11px;font-weight:600;letter-spacing:1.1px;
-                padding:13px 18px 12px;border:none;
-                border-bottom:1px solid {GRAY_2};
-                text-align:center;
-                font-family:'{INTER_FAMILY}';
-            }}
-        """)
-        table.setStyleSheet(table.styleSheet() + owner_scrollbar_qss())
+        table_page = QWidget()
+        table_page.setStyleSheet("background:transparent;border:none;")
+        table_page_lay = QVBoxLayout(table_page)
+        table_page_lay.setContentsMargins(0, 0, 0, 0)
+        table_page_lay.setSpacing(0)
 
-        rows = self._dashboard_data.get("todays_deliveries", [])
-        preview_rows = rows[:10]
-        table.setColumnWidth(0, 260)
-        table.setColumnWidth(3, 140)
+        table_header = QWidget()
+        table_header.setFixedHeight(54)
+        table_header.setStyleSheet(f"background:#f4f8f7;border:none;border-bottom:1px solid {GRAY_2};")
+        header_lay = QGridLayout(table_header)
+        header_lay.setContentsMargins(16, 0, 16, 0)
+        header_lay.setHorizontalSpacing(12)
+        header_lay.setVerticalSpacing(0)
+        self._configure_dashboard_delivery_columns(header_lay)
+        header_lay.addWidget(self._dashboard_table_header_label("CUSTOMER"), 0, 0)
+        header_lay.addWidget(self._dashboard_table_header_label("ADDRESS"), 0, 1)
+        header_lay.addWidget(self._dashboard_table_header_label("PRODUCT", Qt.AlignCenter), 0, 2)
+        header_lay.addWidget(self._dashboard_table_header_label("STATUS", Qt.AlignCenter), 0, 3)
+        table_page_lay.addWidget(table_header)
 
-        status_style = {
-            "DELIVERED":  (GREEN_BG,   GREEN),
-            "IN TRANSIT": (TEAL_PALE2, TEAL_DARK),
-            "PENDING":    (AMBER_BG,   AMBER),
-            "CANCELLED":  (RED_BG,     RED),
-        }
+        table_scroll = QScrollArea()
+        table_scroll.setWidgetResizable(True)
+        table_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        table_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        table_scroll.setStyleSheet(owner_scrollbar_qss())
 
-        table.setRowCount(len(preview_rows))
-        for i, row in enumerate(preview_rows):
-            name = self._text(row.get("customer_name"))
-            phone = self._text(row.get("contact"))
-            addr = self._text(row.get("address"))
-            prod = self._text(row.get("product_summary"), fallback="-")
-            product_items = self._split_delivery_products(prod)
-            status = self._text(row.get("status"), fallback="PENDING").upper()
+        table_list = QWidget()
+        table_list.setStyleSheet("background:transparent;border:none;")
+        table_list_lay = QVBoxLayout(table_list)
+        table_list_lay.setContentsMargins(14, 14, 14, 14)
+        table_list_lay.setSpacing(8)
 
-            # Customer cell — name + phone
-            cust_w = QWidget()
-            cust_w.setStyleSheet("background:#fbfdfc;border:none;")
-            cw_lay = QVBoxLayout(cust_w)
-            cw_lay.setContentsMargins(12, 8, 12, 8)
-            cw_lay.setSpacing(2)
-            cw_lay.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            n = QLabel(name)
-            n.setFont(inter(12, QFont.Medium))
-            n.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-            n.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            p = QLabel(phone)
-            p.setFont(inter(11))
-            p.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-            p.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
-            cw_lay.addWidget(n)
-            cw_lay.addWidget(p)
-            table.setCellWidget(i, 0, cust_w)
+        for row in preview_rows:
+            table_list_lay.addWidget(self._build_dashboard_delivery_row(row))
+        table_list_lay.addStretch()
 
-            addr_host = QWidget()
-            addr_host.setStyleSheet("background:#fbfdfc;border:none;")
-            addr_lay = QVBoxLayout(addr_host)
-            addr_lay.setContentsMargins(12, 8, 12, 8)
-            addr_lay.setSpacing(0)
-            addr_lay.setAlignment(Qt.AlignCenter)
-
-            addr_lbl = QLabel(addr)
-            addr_lbl.setFont(inter(12))
-            addr_lbl.setWordWrap(True)
-            addr_lbl.setAlignment(Qt.AlignCenter)
-            addr_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-            addr_lbl.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
-
-            addr_lay.addWidget(addr_lbl)
-            table.setCellWidget(i, 1, addr_host)
-
-            prod_host = QWidget()
-            prod_host.setStyleSheet("background:#fbfdfc;border:none;")
-            prod_lay = QVBoxLayout(prod_host)
-            prod_lay.setContentsMargins(12, 8, 12, 8)
-            prod_lay.setSpacing(0)
-            prod_lay.setAlignment(Qt.AlignCenter)
-
-            item_count = len(product_items)
-            count_text = f"{item_count} item" if item_count == 1 else f"{item_count} items"
-            count_lbl = QLabel(count_text if product_items else "No items")
-            count_lbl.setFont(inter(10, QFont.DemiBold))
-            count_lbl.setCursor(Qt.PointingHandCursor if product_items else Qt.ArrowCursor)
-            count_lbl.setStyleSheet(
-                f"color:{TEAL_DARK};background:{TEAL_PALE};border:1px solid {TEAL_PALE2};"
-                "border-radius:10px;padding:3px 10px;"
-            )
-            count_lbl.setAlignment(Qt.AlignCenter)
-            count_lbl.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
-            count_lbl.setToolTip(self._delivery_products_tooltip(product_items))
-            prod_lay.addWidget(count_lbl, 0, Qt.AlignCenter)
-
-            prod_host.setToolTip(self._delivery_products_tooltip(product_items))
-            table.setCellWidget(i, 2, prod_host)
-
-            # Status pill
-            bg, fg = status_style.get(status, (GRAY_2, GRAY_5))
-            pill = QLabel(status)
-            pill.setFont(inter(10, QFont.DemiBold))
-            pill.setAlignment(Qt.AlignCenter)
-            pill.setFixedHeight(26)
-            pill.setStyleSheet(f"""
-                background:{bg};color:{fg};
-                border-radius:13px;padding:4px 12px;
-                letter-spacing:0.5px;border:none;
-            """)
-            cell = QWidget()
-            cell.setStyleSheet("background:#fbfdfc;border:none;")
-            cl = QHBoxLayout(cell)
-            cl.setContentsMargins(12, 8, 12, 8)
-            cl.setAlignment(Qt.AlignCenter)
-            cl.addWidget(pill, alignment=Qt.AlignCenter)
-            table.setCellWidget(i, 3, cell)
-
-        for i in range(len(preview_rows)):
-            table.resizeRowToContents(i)
-            table.setRowHeight(i, max(68, min(84, table.rowHeight(i))))
-
-        table.setToolTipDuration(0)
-        table.setMinimumHeight(max(320, 58 + sum(table.rowHeight(i) for i in range(len(preview_rows)))))
-
+        table_scroll.setWidget(table_list)
+        table_page_lay.addWidget(table_scroll, 1)
         empty_view = QWidget()
         empty_view.setStyleSheet("background:transparent;border:none;")
         empty_lay = QVBoxLayout(empty_view)
@@ -2246,20 +2296,18 @@ class DashboardView(QMainWindow):
         empty_sub.setAlignment(Qt.AlignCenter)
         empty_sub.setStyleSheet(f"color:{GRAY_3};background:transparent;border:none;")
 
+        empty_lay.addStretch()
         empty_lay.addWidget(empty_image, 0, Qt.AlignCenter)
         empty_lay.addWidget(empty_title, 0, Qt.AlignCenter)
         empty_lay.addWidget(empty_sub, 0, Qt.AlignCenter)
+        empty_lay.addStretch()
 
         table_stack = QStackedWidget()
-        table_stack.addWidget(table)
+        table_stack.addWidget(table_page)
         table_stack.addWidget(empty_view)
-        table_stack.setCurrentWidget(table if preview_rows else empty_view)
+        table_stack.setCurrentWidget(table_page if preview_rows else empty_view)
 
-        if not preview_rows:
-            table.setRowCount(0)
-            table.setMinimumHeight(0)
-
-        lay.addWidget(table_stack)
+        lay.addWidget(table_stack, 1)
         return card
 
     # ── Quick actions ─────────────────────────────────────────────────────────

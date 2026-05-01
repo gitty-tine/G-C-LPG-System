@@ -1,6 +1,7 @@
 import os
 import re
 import sys
+from decimal import Decimal, InvalidOperation
 
 from PySide6.QtCore import QObject
 
@@ -55,9 +56,23 @@ class OwnerProductController(QObject):
             size = size + "kg"
         normalized["cylinder_size"] = size
 
-        normalized["refill_price"] = float(normalized.get("refill_price"))
-        normalized["new_tank_price"] = float(normalized.get("new_tank_price"))
+        normalized["refill_price"] = OwnerProductController._parse_price(
+            normalized.get("refill_price")
+        )
+        normalized["new_tank_price"] = OwnerProductController._parse_price(
+            normalized.get("new_tank_price")
+        )
         return normalized
+
+    @staticmethod
+    def _parse_price(value):
+        try:
+            raw = str(value).strip().replace("PHP", "").replace("Php", "").replace(",", "")
+            if not raw:
+                return None
+            return Decimal(raw)
+        except (InvalidOperation, ValueError):
+            return None
 
     @staticmethod
     def _parse_cylinder_size(size):
@@ -84,11 +99,23 @@ class OwnerProductController(QObject):
         if "product with this name already exists" in lowered or "name already exists" in lowered:
             return {"name": "Product already exists."}
 
-        if "same name and size" in lowered:
+        if "same name and size" in lowered or "name and cylinder size" in lowered:
+            return {"name": "Product already exists."}
+
+        if "product is already active" in lowered:
+            return {"form": "This product is already active."}
+
+        if "already active" in lowered or "already exists" in lowered:
             return {"name": "Product already exists."}
 
         if "product with id" in lowered and "not found" in lowered:
             return {"form": "This product could not be found anymore. Please refresh and try again."}
+
+        if "active product" in lowered:
+            return {"form": "This product is no longer active. Please refresh and try again."}
+
+        if "delivery history" in lowered or "cannot be permanently deleted" in lowered:
+            return {"form": "This product has delivery history. Archive it instead."}
 
         return {"form": cleaned or "Unable to save the product. Please try again."}
 
@@ -110,23 +137,25 @@ class OwnerProductController(QObject):
             elif size_value <= 0:
                 errors["cylinder_size"] = "Cylinder size must be greater than zero."
 
-        if normalized["refill_price"] <= 0:
+        if normalized["refill_price"] is None:
+            errors["refill_price"] = "Refill price must be a valid number."
+        elif normalized["refill_price"] <= 0:
             errors["refill_price"] = "Prices must be greater than zero."
-        if normalized["new_tank_price"] <= 0:
+        if normalized["new_tank_price"] is None:
+            errors["new_tank_price"] = "New tank price must be a valid number."
+        elif normalized["new_tank_price"] <= 0:
             errors["new_tank_price"] = "Prices must be greater than zero."
 
         if not errors:
-            clean_name = re.sub(r"[^a-zA-Z0-9\s]", "", normalized["name"]).strip()
-            normalized["name"] = clean_name
             if product_id:
                 exists = OwnerProductModel.exists(
-                    clean_name,
+                    normalized["name"],
                     normalized["cylinder_size"],
                     exclude_id=product_id,
                 )
                 if exists:
                     errors["name"] = "A product with this name already exists."
-            elif OwnerProductModel.exists(clean_name, normalized["cylinder_size"]):
+            elif OwnerProductModel.exists(normalized["name"], normalized["cylinder_size"]):
                 errors["name"] = "A product with this name already exists."
 
         return normalized, errors
@@ -136,15 +165,15 @@ class OwnerProductController(QObject):
         return self
 
     # Public actions -----------------------------------------------------------------
-    def refresh_products(self):
-        ok, res = self.list_products()
+    def refresh_products(self, archived=False):
+        ok, res = self.list_products(archived=archived)
         if ok:
             self._push(res)
         else:
             self._error("Load Failed", res)
 
-    def search_products(self, keyword):
-        ok, res = self.search(keyword)
+    def search_products(self, keyword, archived=False):
+        ok, res = self.search(keyword, archived=archived)
         if ok:
             self._push(res)
         else:
@@ -192,32 +221,58 @@ class OwnerProductController(QObject):
         except Exception as exc:
             return False, self._friendly_product_error(exc)
 
-    def delete_product(self, product):
+    def archive_product(self, product):
+        try:
+            product_id = product.get("id")
+            if not product_id:
+                raise ValueError("Product id is required for archive.")
+            user_id = self._current_user_id()
+            OwnerProductModel.archive(product_id, user_id=user_id)
+            self.refresh_products()
+            return True, None
+        except Exception as exc:
+            self._error("Archive Product Failed", exc)
+            return False, self._friendly_product_error(exc)
+
+    def delete_product(self, product, archived=False):
         try:
             product_id = product.get("id")
             if not product_id:
                 raise ValueError("Product id is required for deletion.")
             user_id = self._current_user_id()
             OwnerProductModel.delete(product_id, user_id=user_id)
-            self.refresh_products()
+            self.refresh_products(archived=archived)
+            return True, None
         except Exception as exc:
-            self._error("Delete Product Failed", exc)
+            return False, self._friendly_product_error(exc)
+
+    def restore_product(self, product):
+        try:
+            product_id = product.get("id")
+            if not product_id:
+                raise ValueError("Product id is required for restore.")
+            user_id = self._current_user_id()
+            OwnerProductModel.restore(product_id, user_id=user_id)
+            self.refresh_products(archived=True)
+            return True, None
+        except Exception as exc:
+            return False, self._friendly_product_error(exc)
 
     # Static helpers (legacy-style) --------------------------------------------------
     @staticmethod
-    def list_products():
+    def list_products(archived=False):
         try:
-            return True, OwnerProductModel.get_all()
+            return True, OwnerProductModel.get_all(archived=archived)
         except Exception as e:
             return False, str(e)
 
     @staticmethod
-    def search(keyword):
+    def search(keyword, archived=False):
         try:
             kw = (keyword or "").strip()
             if not kw:
-                return True, OwnerProductModel.get_all()
-            return True, OwnerProductModel.search(kw)
+                return True, OwnerProductModel.get_all(archived=archived)
+            return True, OwnerProductModel.search(kw, archived=archived)
         except Exception as e:
             return False, str(e)
 

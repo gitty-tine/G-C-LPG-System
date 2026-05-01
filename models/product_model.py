@@ -1,7 +1,13 @@
+from decimal import Decimal
+
 from database.connection import get_connection
 
 
 class ProductModel:
+    @staticmethod
+    def _price(value):
+        return Decimal(str(value))
+
     @staticmethod
     def get_all():
         conn   = None
@@ -20,12 +26,14 @@ class ProductModel:
                     p.new_tank_price,
                     FORMAT(p.refill_price,   2)                         AS refill_price_fmt,
                     FORMAT(p.new_tank_price, 2)                         AS new_tank_price_fmt,
+                    p.is_active,
                     (
                         SELECT COUNT(*)
                         FROM delivery_items di
                         WHERE di.product_id = p.id
                     )                                                   AS times_ordered
                 FROM lpg_products p
+                WHERE p.is_active = 1
                 ORDER BY p.name ASC
             """)
             return cursor.fetchall()
@@ -52,6 +60,7 @@ class ProductModel:
                     p.new_tank_price,
                     FORMAT(p.refill_price,   2)                         AS refill_price_fmt,
                     FORMAT(p.new_tank_price, 2)                         AS new_tank_price_fmt,
+                    p.is_active,
                     (
                         SELECT MAX(d.schedule_date)
                         FROM deliveries d
@@ -60,6 +69,7 @@ class ProductModel:
                     )                                                   AS last_ordered
                 FROM lpg_products p
                 WHERE p.id = %s
+                  AND p.is_active = 1
             """, (product_id,))
             return cursor.fetchone()
         finally:
@@ -85,12 +95,16 @@ class ProductModel:
                     p.refill_price,
                     p.new_tank_price,
                     FORMAT(p.refill_price,   2)                         AS refill_price_fmt,
-                    FORMAT(p.new_tank_price, 2)                         AS new_tank_price_fmt
+                    FORMAT(p.new_tank_price, 2)                         AS new_tank_price_fmt,
+                    p.is_active
                 FROM lpg_products p
                 WHERE
-                    LOWER(TRIM(p.name))          LIKE %s OR
-                    LOWER(TRIM(p.cylinder_size)) LIKE %s OR
-                    LOWER(CONCAT(TRIM(p.name), ' ', COALESCE(p.cylinder_size, ''))) LIKE %s
+                    p.is_active = 1
+                    AND (
+                        LOWER(TRIM(p.name))          LIKE %s OR
+                        LOWER(TRIM(p.cylinder_size)) LIKE %s OR
+                        LOWER(CONCAT(TRIM(p.name), ' ', COALESCE(p.cylinder_size, ''))) LIKE %s
+                    )
                 ORDER BY p.name ASC
             """, (term, term, term))
             return cursor.fetchall()
@@ -181,6 +195,7 @@ class ProductModel:
                                                                         AS display_name,
                     p.refill_price,
                     p.new_tank_price,
+                    p.is_active,
                     (
                         SELECT COALESCE(AVG(di.price_at_delivery), p.refill_price)
                         FROM delivery_items di
@@ -188,6 +203,7 @@ class ProductModel:
                           AND di.type = 'refill'
                     )                                                   AS avg_refill_price
                 FROM lpg_products p
+                WHERE p.is_active = 1
                 ORDER BY p.name ASC
             """)
             return cursor.fetchall()
@@ -203,7 +219,7 @@ class ProductModel:
         try:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
-            cursor.execute("SELECT COUNT(*) AS total FROM lpg_products")
+            cursor.execute("SELECT COUNT(*) AS total FROM lpg_products WHERE is_active = 1")
             row = cursor.fetchone()
             return row["total"] if row else 0
         finally:
@@ -221,16 +237,30 @@ class ProductModel:
             if exclude_id:
                 cursor.execute("""
                     SELECT id FROM lpg_products
-                    WHERE LOWER(TRIM(name))          = LOWER(TRIM(%s))
-                      AND LOWER(TRIM(cylinder_size)) = LOWER(TRIM(%s))
+                    WHERE is_active = 1
+                      AND normalized_name = TRIM(
+                          REGEXP_REPLACE(
+                              REGEXP_REPLACE(LOWER(TRIM(%s)), '[^a-z0-9 ]', ''),
+                              '\\s+',
+                              ' '
+                          )
+                      )
+                      AND normalized_cylinder_size = LOWER(TRIM(%s))
                       AND id != %s
                     LIMIT 1
                 """, (name, cylinder_size, exclude_id))
             else:
                 cursor.execute("""
                     SELECT id FROM lpg_products
-                    WHERE LOWER(TRIM(name))          = LOWER(TRIM(%s))
-                      AND LOWER(TRIM(cylinder_size)) = LOWER(TRIM(%s))
+                    WHERE is_active = 1
+                      AND normalized_name = TRIM(
+                          REGEXP_REPLACE(
+                              REGEXP_REPLACE(LOWER(TRIM(%s)), '[^a-z0-9 ]', ''),
+                              '\\s+',
+                              ' '
+                          )
+                      )
+                      AND normalized_cylinder_size = LOWER(TRIM(%s))
                     LIMIT 1
                 """, (name, cylinder_size))
             return cursor.fetchone() is not None
@@ -247,15 +277,21 @@ class ProductModel:
             conn   = get_connection()
             cursor = conn.cursor()
 
-            conn.start_transaction()
-
-            cursor.execute("""
-                INSERT INTO lpg_products (name, cylinder_size, refill_price, new_tank_price)
-                VALUES (TRIM(%s), TRIM(%s), ROUND(%s, 2), ROUND(%s, 2))
-            """, (name, cylinder_size,
-                  float(refill_price), float(new_tank_price)))
-
-            new_id = cursor.lastrowid
+            cursor.execute("SET @current_user_id = 0")
+            cursor.callproc(
+                "sp_add_product",
+                [
+                    name,
+                    cylinder_size,
+                    ProductModel._price(refill_price),
+                    ProductModel._price(new_tank_price),
+                ],
+            )
+            new_id = None
+            for result in cursor.stored_results():
+                row = result.fetchone()
+                if row:
+                    new_id = row[0]
             conn.commit()
             return new_id
 
@@ -276,26 +312,17 @@ class ProductModel:
             conn   = get_connection()
             cursor = conn.cursor()
 
-            conn.start_transaction()
-            cursor.execute("SAVEPOINT before_product_update")
-
-            cursor.execute("""
-                UPDATE lpg_products
-                SET
-                    name           = TRIM(%s),
-                    cylinder_size  = TRIM(%s),
-                    refill_price   = ROUND(%s, 2),
-                    new_tank_price = ROUND(%s, 2)
-                WHERE id = %s
-            """, (name, cylinder_size,
-                  float(refill_price), float(new_tank_price),
-                  product_id))
-
-            if cursor.rowcount == 0:
-                cursor.execute("ROLLBACK TO SAVEPOINT before_product_update")
-                conn.rollback()
-                raise ValueError(f"Product with id {product_id} not found.")
-
+            cursor.execute("SET @current_user_id = 0")
+            cursor.callproc(
+                "sp_update_product",
+                [
+                    product_id,
+                    name,
+                    cylinder_size,
+                    ProductModel._price(refill_price),
+                    ProductModel._price(new_tank_price),
+                ],
+            )
             conn.commit()
             return True
 
@@ -314,31 +341,9 @@ class ProductModel:
         cursor = None
         try:
             conn   = get_connection()
-            cursor = conn.cursor(dictionary=True)
-
-            
-            cursor.execute("""
-                SELECT COUNT(*) AS used_count
-                FROM delivery_items
-                WHERE product_id = %s
-                  AND delivery_id IN (
-                      SELECT id FROM deliveries
-                      WHERE status IN ('pending', 'in_transit')
-                  )
-            """, (product_id,))
-
-            row = cursor.fetchone()
-            if row and row["used_count"] > 0:
-                raise ValueError(
-                    "This product is currently used in active deliveries. "
-                    "Please complete or cancel those deliveries before deleting."
-                )
-
-            cursor.execute(
-                "DELETE FROM lpg_products WHERE id = %s",
-                (product_id,)
-            )
-
+            cursor = conn.cursor()
+            cursor.execute("SET @current_user_id = 0")
+            cursor.callproc("sp_delete_product", [product_id])
             conn.commit()
             return True
 
