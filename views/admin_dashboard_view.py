@@ -22,6 +22,8 @@ from controllers.login_controller import LoginController
 from controllers.delivery_controller import DeliveryController
 from controllers.product_controller import ProductController
 from controllers.notification_controller import NotificationController
+from controllers.message_controller import MessageController
+from views.message_view import MessageIconButton, MessagingPanel
 
 # ── Project root & asset paths ────────────────────────────────────────────────
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -1511,6 +1513,7 @@ class DashboardView(QMainWindow):
         self._account_controller = AccountController()
         self._notification_controller = NotificationController(self._user)
         self._notifications = []
+        self._message_controller = MessageController(self._user)
         self._dropdown_open = False
         self.setWindowTitle("G and C LPG Trading — Delivery Scheduling & Tracking System")
         self._build_ui()
@@ -1799,6 +1802,7 @@ class DashboardView(QMainWindow):
         self._notification_timer.timeout.connect(self._refresh_notifications)
         self._notification_timer.start()
         QTimer.singleShot(750, self._refresh_notifications)
+        QTimer.singleShot(1100, self._refresh_message_badge)
 
         # Modals — children of central so they cover everything
         self._name_modal = EditNameModal(central)
@@ -2394,9 +2398,19 @@ class DashboardView(QMainWindow):
         lay.addLayout(clock_col)
         lay.addSpacing(16)
 
+        self._message_btn = MessageIconButton()
+        self._message_btn.clicked.connect(self._toggle_messages)
+        lay.addWidget(self._message_btn)
+        lay.addSpacing(8)
+
         self._notif_btn = NotificationBellButton()
         self._notif_btn.clicked.connect(self._toggle_notifications)
         lay.addWidget(self._notif_btn)
+
+        self._message_panel = MessagingPanel(
+            self._message_controller,
+            on_unread_changed=self._set_message_unread_count,
+        )
 
         self._notification_dropdown = NotificationDropdown(
             on_mark_all=self._mark_all_notifications_read,
@@ -2411,6 +2425,23 @@ class DashboardView(QMainWindow):
 
     def _tick(self):
         self._clock_lbl.setText(QTime.currentTime().toString("hh:mm:ss"))
+
+    def _set_message_unread_count(self, count):
+        if hasattr(self, "_message_btn"):
+            self._message_btn.set_unread_count(count)
+
+    def _refresh_message_badge(self):
+        if not hasattr(self, "_message_panel"):
+            return
+        self._message_panel.refresh_unread_badge()
+
+    def _toggle_messages(self):
+        if self._message_panel.isVisible():
+            self._message_panel.hide()
+            return
+        if hasattr(self, "_notification_dropdown") and self._notification_dropdown.isVisible():
+            self._notification_dropdown.hide()
+        self._message_panel.show_for(self._message_btn)
 
     def _refresh_notifications(self):
         if not hasattr(self, "_notification_dropdown"):
@@ -2437,6 +2468,8 @@ class DashboardView(QMainWindow):
             self._notification_dropdown.hide()
             return
 
+        if hasattr(self, "_message_panel") and self._message_panel.isVisible():
+            self._message_panel.hide()
         self._refresh_notifications()
         self._notification_dropdown.set_notifications(self._notifications)
         self._notification_dropdown.show_for(self._notif_btn)
@@ -2918,6 +2951,8 @@ class DashboardView(QMainWindow):
             self._sync_dropdown_state()
         if hasattr(self, "_notification_dropdown") and self._notification_dropdown.isVisible():
             self._notification_dropdown.hide()
+        if hasattr(self, "_message_panel") and self._message_panel.isVisible():
+            self._message_panel.hide()
         super().mousePressEvent(event)
 
 
