@@ -647,7 +647,7 @@ class OwnerDashboardView(QMainWindow):
         self._notification_timer.setInterval(15000)
         self._notification_timer.timeout.connect(self._refresh_notifications)
         self._notification_timer.start()
-        QTimer.singleShot(0, self._refresh_notifications)
+        QTimer.singleShot(750, self._refresh_notifications)
 
         self._name_modal = EditNameModal(central)
         self._pass_modal = ChangePasswordModal(central)
@@ -1027,19 +1027,6 @@ class OwnerDashboardView(QMainWindow):
         lay.addLayout(clock_col)
         lay.addSpacing(16)
 
-        notif = QPushButton()
-        notif.setFixedSize(36, 36)
-        notif.setCursor(Qt.PointingHandCursor)
-        notif.setText("🔔")
-        notif.setStyleSheet(
-            f"""
-            QPushButton{{
-                color:{GRAY_4};background:{WHITE};
-                border:1px solid {GRAY_2};border-radius:6px;font-size:14px;
-            }}
-            QPushButton:hover{{background:{GRAY_1};}}
-        """
-        )
         self._notif_btn = NotificationBellButton()
         self._notif_btn.clicked.connect(self._toggle_notifications)
         lay.addWidget(self._notif_btn)
@@ -1068,15 +1055,19 @@ class OwnerDashboardView(QMainWindow):
 
         success, result = self._notification_controller.list_notifications()
         if not success:
+            self._notifications = []
             if hasattr(self, "_notif_btn"):
                 self._notif_btn.set_unread_count(0)
                 self._notif_btn.setToolTip(f"Notifications unavailable: {result}")
+            if self._notification_dropdown.isVisible():
+                self._notification_dropdown.set_notifications([])
             return
 
         self._notifications = result or []
         unread = sum(1 for item in self._notifications if not item.get("is_read"))
         self._notif_btn.set_unread_count(unread)
-        self._notification_dropdown.set_notifications(self._notifications)
+        if self._notification_dropdown.isVisible():
+            self._notification_dropdown.set_notifications(self._notifications)
 
     def _toggle_notifications(self):
         if self._notification_dropdown.isVisible():
@@ -1084,12 +1075,8 @@ class OwnerDashboardView(QMainWindow):
             return
 
         self._refresh_notifications()
-        global_pos = self._notif_btn.mapToGlobal(
-            QPoint(self._notif_btn.width() - self._notification_dropdown.width(), self._notif_btn.height() + 8)
-        )
-        self._notification_dropdown.move(global_pos)
-        self._notification_dropdown.show()
-        self._notification_dropdown.raise_()
+        self._notification_dropdown.set_notifications(self._notifications)
+        self._notification_dropdown.show_for(self._notif_btn)
 
     def _mark_all_notifications_read(self):
         keys = self._notification_dropdown.notification_keys()
@@ -1582,15 +1569,7 @@ class OwnerDashboardView(QMainWindow):
             return
 
         self._dropdown.name_lbl.setText(self._name_display.text())
-        global_pos = self._profile_block.mapToGlobal(
-            QPoint(
-                self._profile_block.width() - self._dropdown.width() - 8,
-                self._profile_block.height() + 2,
-            )
-        )
-        self._dropdown.move(global_pos)
-        self._dropdown.show()
-        self._dropdown.raise_()
+        self._dropdown.show_for(self._profile_block)
         self._sync_dropdown_state()
 
     def _default_update_profile(self, new_name, new_username, new_email=None):

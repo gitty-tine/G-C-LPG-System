@@ -2,6 +2,8 @@ from database.connection import get_connection
 
 
 class NotificationModel:
+    _table_ready = False
+
     TABLE_SQL = """
         CREATE TABLE IF NOT EXISTS notification_reads (
             id INT AUTO_INCREMENT PRIMARY KEY,
@@ -39,7 +41,10 @@ class NotificationModel:
 
     @staticmethod
     def _ensure_table(cursor):
+        if NotificationModel._table_ready:
+            return
         cursor.execute(NotificationModel.TABLE_SQL)
+        NotificationModel._table_ready = True
 
     @staticmethod
     def _plural(count, singular, plural=None):

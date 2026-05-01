@@ -285,9 +285,9 @@ class KpiCard(QFrame):
 # ── Profile dropdown ──────────────────────────────────────────────────────────
 class ProfileDropdown(QFrame):
     def __init__(self, parent=None):
-        super().__init__(None)
-        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("profileDropdown")
 
         self.setStyleSheet("""
@@ -298,12 +298,6 @@ class ProfileDropdown(QFrame):
             }
         """)
         self.setFixedWidth(244)
-
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(20, 60, 55, 58))
-        self.setGraphicsEffect(shadow)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
@@ -338,6 +332,44 @@ class ProfileDropdown(QFrame):
         lay.addWidget(HDivider(GRAY_2))
         lay.addWidget(self.change_pass_btn)
 
+    def _position_for_anchor(self, anchor, x_offset=-8, y_offset=2, margin=8):
+        self.adjustSize()
+        anchor_top_left = anchor.mapToGlobal(QPoint(0, 0))
+        anchor_bottom_right = anchor.mapToGlobal(QPoint(anchor.width(), anchor.height()))
+        screen = QApplication.screenAt(anchor_bottom_right)
+        if screen is None and anchor.window() is not None:
+            screen = anchor.window().screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return QPoint(
+                anchor_bottom_right.x() - self.width() + x_offset,
+                anchor_bottom_right.y() + y_offset,
+            )
+
+        available = screen.availableGeometry()
+        width = self.width()
+        height = self.height()
+
+        min_x = available.left() + margin
+        max_x = available.right() - width - margin + 1
+        x = anchor_bottom_right.x() - width + x_offset
+        x = min_x if max_x < min_x else min(max(x, min_x), max_x)
+
+        min_y = available.top() + margin
+        max_y = available.bottom() - height - margin + 1
+        y = anchor_bottom_right.y() + y_offset
+        if y > max_y:
+            y = anchor_top_left.y() - height - y_offset
+        y = min_y if max_y < min_y else min(max(y, min_y), max_y)
+
+        return QPoint(x, y)
+
+    def show_for(self, anchor):
+        self.move(self._position_for_anchor(anchor))
+        self.show()
+        self.raise_()
+
     def _item(self, text):
         btn = QPushButton(text)
         btn.setObjectName("profileMenuItem")
@@ -365,14 +397,16 @@ class ProfileDropdown(QFrame):
 
 class NotificationBellButton(QPushButton):
     def __init__(self, parent=None):
-        super().__init__("!", parent)
+        super().__init__(parent)
         self.setFixedSize(36, 36)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFont(inter(13, QFont.DemiBold))
+        self.setText("\U0001F514")
+        self.setFont(QFont("Segoe UI Emoji", 13))
         self.setStyleSheet(f"""
             QPushButton {{
-                color:{AMBER};background:{WHITE};
+                color:{GRAY_4};background:{WHITE};
                 border:1px solid {GRAY_2};border-radius:6px;
+                font-size:14px;
             }}
             QPushButton:hover {{
                 background:{TEAL_PALE};border-color:{TEAL_LIGHT};
@@ -382,29 +416,35 @@ class NotificationBellButton(QPushButton):
 
         self._badge = QLabel(self)
         self._badge.setAlignment(Qt.AlignCenter)
-        self._badge.setFont(inter(7, QFont.Bold))
-        self._badge.setFixedSize(17, 17)
+        self._badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._badge.setFont(inter(7, QFont.DemiBold))
+        self._badge.setFixedSize(18, 18)
+        self._badge.setStyleSheet(f"""
+            QLabel {{
+                color:{WHITE};background:{RED};
+                border:2px solid {WHITE};border-radius:9px;
+            }}
+        """)
         self._badge.hide()
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        self._badge.move(self.width() - 12, -2)
+        self._badge.move(self.width() - self._badge.width() - 1, 1)
+        self._badge.raise_()
 
     def set_unread_count(self, count):
-        count = int(count or 0)
+        try:
+            count = int(count or 0)
+        except (TypeError, ValueError):
+            count = 0
         if count <= 0:
             self._badge.hide()
             self.setToolTip("No unread notifications")
             return
 
         self._badge.setText("9+" if count > 9 else str(count))
-        self._badge.setStyleSheet(f"""
-            QLabel {{
-                color:{WHITE};background:{RED};
-                border:2px solid {WHITE};border-radius:8px;
-            }}
-        """)
         self._badge.show()
+        self._badge.raise_()
         self.setToolTip(f"{count} unread notification{'s' if count != 1 else ''}")
 
 
@@ -474,12 +514,12 @@ class NotificationItemWidget(QFrame):
 
 class NotificationDropdown(QFrame):
     def __init__(self, on_mark_all=None, on_item_clicked=None, parent=None):
-        super().__init__(None)
+        super().__init__(parent)
         self._notifications = []
         self._on_mark_all = on_mark_all
         self._on_item_clicked = on_item_clicked
-        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("notificationDropdown")
         self.setFixedWidth(360)
         self.setStyleSheet(f"""
@@ -489,12 +529,6 @@ class NotificationDropdown(QFrame):
                 border-radius:8px;
             }}
         """)
-
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(24)
-        shadow.setOffset(0, 10)
-        shadow.setColor(QColor(20, 60, 55, 58))
-        self.setGraphicsEffect(shadow)
 
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
@@ -594,6 +628,41 @@ class NotificationDropdown(QFrame):
         scroll_height = 72 + (visible_rows * 86)
         self._scroll.setFixedHeight(scroll_height)
         self.setFixedHeight(61 + scroll_height)
+
+    def _position_for_anchor(self, anchor, gap=8, margin=8):
+        self.adjustSize()
+        anchor_top_left = anchor.mapToGlobal(QPoint(0, 0))
+        anchor_bottom_right = anchor.mapToGlobal(QPoint(anchor.width(), anchor.height()))
+        screen = QApplication.screenAt(anchor_bottom_right)
+        if screen is None and anchor.window() is not None:
+            screen = anchor.window().screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return QPoint(anchor_bottom_right.x() - self.width(), anchor_bottom_right.y() + gap)
+
+        available = screen.availableGeometry()
+        width = self.width()
+        height = self.height()
+
+        min_x = available.left() + margin
+        max_x = available.right() - width - margin + 1
+        x = anchor_bottom_right.x() - width
+        x = min_x if max_x < min_x else min(max(x, min_x), max_x)
+
+        min_y = available.top() + margin
+        max_y = available.bottom() - height - margin + 1
+        y = anchor_bottom_right.y() + gap
+        if y > max_y:
+            y = anchor_top_left.y() - height - gap
+        y = min_y if max_y < min_y else min(max(y, min_y), max_y)
+
+        return QPoint(x, y)
+
+    def show_for(self, anchor):
+        self.move(self._position_for_anchor(anchor))
+        self.show()
+        self.raise_()
 
     def _mark_all(self):
         if self._on_mark_all is not None:
@@ -1729,7 +1798,7 @@ class DashboardView(QMainWindow):
         self._notification_timer.setInterval(15000)
         self._notification_timer.timeout.connect(self._refresh_notifications)
         self._notification_timer.start()
-        QTimer.singleShot(0, self._refresh_notifications)
+        QTimer.singleShot(750, self._refresh_notifications)
 
         # Modals — children of central so they cover everything
         self._name_modal = EditNameModal(central)
@@ -2195,18 +2264,8 @@ class DashboardView(QMainWindow):
             self._chevron.setText("▾")
         else:
             self._dropdown.name_lbl.setText(self._name_display.text())
-
-            global_pos = self._profile_block.mapToGlobal(
-                QPoint(
-                    self._profile_block.width() - self._dropdown.width() - 8,
-                    self._profile_block.height() + 2
-                )
-            )
-
-            self._dropdown.move(global_pos)
-            self._dropdown.show()
+            self._dropdown.show_for(self._profile_block)
             self._sync_dropdown_state()
-            self._dropdown.raise_()
 
             self._dropdown_open = True
             self._chevron.setText("▴")
@@ -2335,17 +2394,6 @@ class DashboardView(QMainWindow):
         lay.addLayout(clock_col)
         lay.addSpacing(16)
 
-        notif = QPushButton()
-        notif.setFixedSize(36, 36)
-        notif.setCursor(Qt.PointingHandCursor)
-        notif.setText("🔔")
-        notif.setStyleSheet(f"""
-            QPushButton{{
-                color:{GRAY_4};background:{WHITE};
-                border:1px solid {GRAY_2};border-radius:6px;font-size:14px;
-            }}
-            QPushButton:hover{{background:{GRAY_1};}}
-        """)
         self._notif_btn = NotificationBellButton()
         self._notif_btn.clicked.connect(self._toggle_notifications)
         lay.addWidget(self._notif_btn)
@@ -2370,15 +2418,19 @@ class DashboardView(QMainWindow):
 
         success, result = self._notification_controller.list_notifications()
         if not success:
+            self._notifications = []
             if hasattr(self, "_notif_btn"):
                 self._notif_btn.set_unread_count(0)
                 self._notif_btn.setToolTip(f"Notifications unavailable: {result}")
+            if self._notification_dropdown.isVisible():
+                self._notification_dropdown.set_notifications([])
             return
 
         self._notifications = result or []
         unread = sum(1 for item in self._notifications if not item.get("is_read"))
         self._notif_btn.set_unread_count(unread)
-        self._notification_dropdown.set_notifications(self._notifications)
+        if self._notification_dropdown.isVisible():
+            self._notification_dropdown.set_notifications(self._notifications)
 
     def _toggle_notifications(self):
         if self._notification_dropdown.isVisible():
@@ -2386,12 +2438,8 @@ class DashboardView(QMainWindow):
             return
 
         self._refresh_notifications()
-        global_pos = self._notif_btn.mapToGlobal(
-            QPoint(self._notif_btn.width() - self._notification_dropdown.width(), self._notif_btn.height() + 8)
-        )
-        self._notification_dropdown.move(global_pos)
-        self._notification_dropdown.show()
-        self._notification_dropdown.raise_()
+        self._notification_dropdown.set_notifications(self._notifications)
+        self._notification_dropdown.show_for(self._notif_btn)
 
     def _mark_all_notifications_read(self):
         keys = self._notification_dropdown.notification_keys()
