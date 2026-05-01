@@ -485,6 +485,7 @@ class OwnerProductCard(QFrame):
 		on_delete=None,
 		on_restore=None,
 		archived=False,
+		read_only=False,
 		parent=None,
 	):
 		super().__init__(parent)
@@ -494,7 +495,8 @@ class OwnerProductCard(QFrame):
 		self._on_delete = on_delete
 		self._on_restore = on_restore
 		self._archived = archived
-		self.setMinimumHeight(386)
+		self._read_only = read_only
+		self.setMinimumHeight(344 if self._read_only else 386)
 		self.setFixedWidth(PRODUCT_CARD_WIDTH)
 		self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
 		self.setStyleSheet(
@@ -588,38 +590,41 @@ class OwnerProductCard(QFrame):
 		metric_row.addWidget(self._metric_chip("Sold", self._as_int(product.get("total_sold"))), 1)
 		metric_row.addWidget(self._metric_chip("Deliveries", self._as_int(product.get("total_deliveries"))), 1)
 
-		btn_row = QHBoxLayout()
-		btn_row.setContentsMargins(0, 0, 0, 0)
-		btn_row.setSpacing(8)
+		btn_row = None
+		if not self._read_only:
+			btn_row = QHBoxLayout()
+			btn_row.setContentsMargins(0, 0, 0, 0)
+			btn_row.setSpacing(8)
 
-		if self._archived:
-			restore_btn = self._make_card_button("Restore", "primary")
-			restore_btn.clicked.connect(lambda: self._on_restore(self._product) if self._on_restore else None)
-			btn_row.addWidget(restore_btn, 1)
+			if self._archived:
+				restore_btn = self._make_card_button("Restore", "primary")
+				restore_btn.clicked.connect(lambda: self._on_restore(self._product) if self._on_restore else None)
+				btn_row.addWidget(restore_btn, 1)
 
-			delete_btn = self._make_card_button("Delete", "danger")
-			delete_btn.clicked.connect(lambda: self._on_delete(self._product) if self._on_delete else None)
-			btn_row.addWidget(delete_btn, 1)
-		else:
-			edit_btn = self._make_card_button("Edit", "soft")
-			edit_btn.clicked.connect(lambda: self._on_edit(self._product) if self._on_edit else None)
+				delete_btn = self._make_card_button("Delete", "danger")
+				delete_btn.clicked.connect(lambda: self._on_delete(self._product) if self._on_delete else None)
+				btn_row.addWidget(delete_btn, 1)
+			else:
+				edit_btn = self._make_card_button("Edit", "soft")
+				edit_btn.clicked.connect(lambda: self._on_edit(self._product) if self._on_edit else None)
 
-			archive_btn = self._make_card_button("Archive", "warning")
-			archive_btn.clicked.connect(lambda: self._on_archive(self._product) if self._on_archive else None)
+				archive_btn = self._make_card_button("Archive", "warning")
+				archive_btn.clicked.connect(lambda: self._on_archive(self._product) if self._on_archive else None)
 
-			delete_btn = self._make_card_button("Delete", "danger")
-			delete_btn.clicked.connect(lambda: self._on_delete(self._product) if self._on_delete else None)
+				delete_btn = self._make_card_button("Delete", "danger")
+				delete_btn.clicked.connect(lambda: self._on_delete(self._product) if self._on_delete else None)
 
-			btn_row.addWidget(edit_btn, 1)
-			btn_row.addWidget(archive_btn, 1)
-			btn_row.addWidget(delete_btn, 1)
+				btn_row.addWidget(edit_btn, 1)
+				btn_row.addWidget(archive_btn, 1)
+				btn_row.addWidget(delete_btn, 1)
 
 		lay.addWidget(icon_box)
 		lay.addWidget(name_lbl)
 		lay.addLayout(price_row)
 		lay.addLayout(metric_row)
 		lay.addStretch(1)
-		lay.addLayout(btn_row)
+		if btn_row is not None:
+			lay.addLayout(btn_row)
 
 	def enterEvent(self, event):
 		self._set_hover_shadow(True)

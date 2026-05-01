@@ -38,6 +38,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
+from controllers.notification_controller import NotificationController
 from views.admin_dashboard_view import (
     AMBER,
     BASE_DIR,
@@ -49,6 +50,8 @@ from views.admin_dashboard_view import (
     GRAY_5,
     HDivider,
     NavItemWidget,
+    NotificationBellButton,
+    NotificationDropdown,
     PersonIconWidget,
     ProfileDropdown,
     TEAL,
@@ -62,7 +65,7 @@ from views.admin_dashboard_view import (
     load_fonts,
     owner_scrollbar_qss,
     playfair,
-    show_success_popup,
+    show_ok_success_popup,
 )
 
 
@@ -390,6 +393,8 @@ class OwnerDashboardView(QMainWindow):
         self._controller = None
         self._dashboard_data = self._empty_dashboard_data()
         self._dashboard_refresh_interval_ms = 15000
+        self._notification_controller = NotificationController(self._user)
+        self._notifications = []
         self._dropdown_open = False
         self._action_handlers = {}
         self._page_factories = {}
@@ -637,6 +642,12 @@ class OwnerDashboardView(QMainWindow):
         self._dashboard_refresh_timer = QTimer(self)
         self._dashboard_refresh_timer.setInterval(self._dashboard_refresh_interval_ms)
         self._dashboard_refresh_timer.timeout.connect(self._refresh_dashboard_if_visible)
+
+        self._notification_timer = QTimer(self)
+        self._notification_timer.setInterval(15000)
+        self._notification_timer.timeout.connect(self._refresh_notifications)
+        self._notification_timer.start()
+        QTimer.singleShot(0, self._refresh_notifications)
 
         self._name_modal = EditNameModal(central)
         self._pass_modal = ChangePasswordModal(central)
@@ -1029,7 +1040,14 @@ class OwnerDashboardView(QMainWindow):
             QPushButton:hover{{background:{GRAY_1};}}
         """
         )
-        lay.addWidget(notif)
+        self._notif_btn = NotificationBellButton()
+        self._notif_btn.clicked.connect(self._toggle_notifications)
+        lay.addWidget(self._notif_btn)
+
+        self._notification_dropdown = NotificationDropdown(
+            on_mark_all=self._mark_all_notifications_read,
+            on_item_clicked=self._open_notification,
+        )
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -1043,6 +1061,62 @@ class OwnerDashboardView(QMainWindow):
 
     def _tick(self):
         self._clock_lbl.setText(QTime.currentTime().toString("hh:mm:ss"))
+
+    def _refresh_notifications(self):
+        if not hasattr(self, "_notification_dropdown"):
+            return
+
+        success, result = self._notification_controller.list_notifications()
+        if not success:
+            if hasattr(self, "_notif_btn"):
+                self._notif_btn.set_unread_count(0)
+                self._notif_btn.setToolTip(f"Notifications unavailable: {result}")
+            return
+
+        self._notifications = result or []
+        unread = sum(1 for item in self._notifications if not item.get("is_read"))
+        self._notif_btn.set_unread_count(unread)
+        self._notification_dropdown.set_notifications(self._notifications)
+
+    def _toggle_notifications(self):
+        if self._notification_dropdown.isVisible():
+            self._notification_dropdown.hide()
+            return
+
+        self._refresh_notifications()
+        global_pos = self._notif_btn.mapToGlobal(
+            QPoint(self._notif_btn.width() - self._notification_dropdown.width(), self._notif_btn.height() + 8)
+        )
+        self._notification_dropdown.move(global_pos)
+        self._notification_dropdown.show()
+        self._notification_dropdown.raise_()
+
+    def _mark_all_notifications_read(self):
+        keys = self._notification_dropdown.notification_keys()
+        success, _ = self._notification_controller.mark_all_read(keys)
+        if success:
+            self._refresh_notifications()
+
+    def _open_notification(self, notification):
+        key = (notification or {}).get("key")
+        if key:
+            self._notification_controller.mark_read(key)
+        self._notification_dropdown.hide()
+        self._refresh_notifications()
+        self._navigate_notification_action((notification or {}).get("action"))
+
+    def _navigate_notification_action(self, action):
+        action = str(action or "").strip().lower()
+        routes = {
+            "deliveries": self._show_delivery_logs_page,
+            "transactions": self._show_transactions_page,
+            "customers": self._show_audit_logs_page,
+            "products": self._show_products_page,
+            "audit_logs": self._show_audit_logs_page,
+        }
+        handler = routes.get(action)
+        if handler is not None:
+            handler()
 
     def _build_dashboard_content(self):
         sales_kpis = self._dashboard_data.get("sales_kpis", {})
@@ -1649,33 +1723,29 @@ class OwnerDashboardView(QMainWindow):
                 new_name, new_username, new_email
             )
             self._refresh_profile_texts()
-            QMessageBox.information(self, "Profile Updated", "Your profile has been updated.")
+            show_ok_success_popup(self, "Profile Updated", "Your profile has been updated.")
             return True
         except ValueError as exc:
-            self._name_modal.err_lbl.setText(str(exc))
-            self._name_modal.err_lbl.show()
+            self._name_modal.show_error_message(str(exc))
             return False
         except Exception as exc:
             from utils.error_handler import clean_db_error
 
-            self._name_modal.err_lbl.setText(clean_db_error(exc))
-            self._name_modal.err_lbl.show()
+            self._name_modal.show_error_message(clean_db_error(exc))
             return False
 
     def _do_change_password(self, current, new):
         try:
             self._action_handlers["change_password"](current, new)
-            show_success_popup(self, "Password Updated", "Your password has been updated.")
+            show_ok_success_popup(self, "Password Updated", "Your password has been updated.")
             return True
         except ValueError as exc:
-            self._pass_modal.err_lbl.setText(str(exc))
-            self._pass_modal.err_lbl.show()
+            self._pass_modal.show_error_message(str(exc))
             return False
         except Exception as exc:
             from utils.error_handler import clean_db_error
 
-            self._pass_modal.err_lbl.setText(clean_db_error(exc))
-            self._pass_modal.err_lbl.show()
+            self._pass_modal.show_error_message(clean_db_error(exc))
             return False
 
     def _sign_out(self):
@@ -1695,6 +1765,8 @@ class OwnerDashboardView(QMainWindow):
         if self._dropdown_open:
             self._dropdown.hide()
             self._sync_dropdown_state()
+        if hasattr(self, "_notification_dropdown") and self._notification_dropdown.isVisible():
+            self._notification_dropdown.hide()
         super().mousePressEvent(event)
 
 

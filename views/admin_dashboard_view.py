@@ -21,6 +21,7 @@ from controllers.account_controller import AccountController
 from controllers.login_controller import LoginController
 from controllers.delivery_controller import DeliveryController
 from controllers.product_controller import ProductController
+from controllers.notification_controller import NotificationController
 
 # ── Project root & asset paths ────────────────────────────────────────────────
 BASE_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -132,27 +133,31 @@ class PasswordLineEdit(QLineEdit):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setEchoMode(QLineEdit.Password)
-        self.setTextMargins(0, 0, 48, 0)
+        self.setTextMargins(0, 0, 44, 0)
 
         self.eye_btn = QToolButton(self)
         self.eye_btn.setCursor(Qt.PointingHandCursor)
         self.eye_btn.setIcon(password_eye_icon(False))
         self.eye_btn.setIconSize(QSize(18, 18))
         self.eye_btn.setToolTip("Show password")
-        self.eye_btn.setStyleSheet("""
-            QToolButton {
+        self.eye_btn.setStyleSheet(f"""
+            QToolButton {{
                 border: none;
                 background: transparent;
                 padding: 0;
-            }
+                border-radius: 5px;
+            }}
+            QToolButton:hover {{
+                background: {TEAL_PALE};
+            }}
         """)
         self.eye_btn.clicked.connect(self._toggle_password)
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
-        btn_size = 28
+        btn_size = 30
         self.eye_btn.setFixedSize(btn_size, btn_size)
-        self.eye_btn.move(self.width() - 54, (self.height() - btn_size) // 2)
+        self.eye_btn.move(self.width() - 42, (self.height() - btn_size) // 2)
 
     def _toggle_password(self):
         visible = self.echoMode() == QLineEdit.Password
@@ -282,35 +287,45 @@ class ProfileDropdown(QFrame):
     def __init__(self, parent=None):
         super().__init__(None)
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground, False)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setObjectName("profileDropdown")
 
         self.setStyleSheet("""
             QFrame#profileDropdown {
-                background: #e9e9e9;
-                border: 1px solid #cfcfcf;
+                background: #ffffff;
+                border: 1px solid #dfe7e5;
                 border-radius: 8px;
             }
         """)
-        self.setFixedWidth(220)
+        self.setFixedWidth(244)
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 10)
+        shadow.setColor(QColor(20, 60, 55, 58))
+        self.setGraphicsEffect(shadow)
 
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
         header = QWidget()
-        header.setStyleSheet("background:transparent; border:none; border-bottom:1px solid #d3d3d3;")
+        header.setStyleSheet(
+            f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};"
+            "border-top-left-radius:8px;border-top-right-radius:8px;"
+        )
         h_lay = QVBoxLayout(header)
-        h_lay.setContentsMargins(16, 12, 16, 12)
-        h_lay.setSpacing(3)
+        h_lay.setContentsMargins(18, 14, 18, 14)
+        h_lay.setSpacing(4)
 
         signed = QLabel("SIGNED IN AS")
         signed.setFont(inter(8, QFont.DemiBold))
-        signed.setStyleSheet("color:#7f7f7f; letter-spacing:2px; background:transparent; border:none;")
+        signed.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.8px;background:transparent;border:none;")
 
         self.name_lbl = QLabel("")
-        self.name_lbl.setFont(inter(13, QFont.Medium))
+        self.name_lbl.setFont(inter(13, QFont.DemiBold))
         self.name_lbl.setStyleSheet(f"color:{TEAL_DARK}; background:transparent; border:none;")
+        self.name_lbl.setMinimumHeight(22)
 
         h_lay.addWidget(signed)
         h_lay.addWidget(self.name_lbl)
@@ -320,28 +335,269 @@ class ProfileDropdown(QFrame):
         self.change_pass_btn = self._item("Change password")
 
         lay.addWidget(self.edit_name_btn)
-        lay.addWidget(HDivider("#d3d3d3"))
+        lay.addWidget(HDivider(GRAY_2))
         lay.addWidget(self.change_pass_btn)
 
     def _item(self, text):
         btn = QPushButton(text)
+        btn.setObjectName("profileMenuItem")
         btn.setCursor(Qt.PointingHandCursor)
-        btn.setFont(inter(12))
-        btn.setFixedHeight(46)
+        btn.setFont(inter(11, QFont.Medium))
+        btn.setFixedHeight(44)
         btn.setStyleSheet(f"""
-            QPushButton {{
-                color:#3f4a48;
-                background:transparent;
-                border:none;
+            QPushButton#profileMenuItem {{
+                color:{GRAY_5};
+                background:{WHITE};
+                border: none;
                 text-align:left;
-                padding:0 16px;
+                padding:0 18px;
             }}
-            QPushButton:hover {{
-                background:#dddddd;
+            QPushButton#profileMenuItem:hover {{
+                background:{TEAL_PALE};
                 color:{TEAL_DARK};
+            }}
+            QPushButton#profileMenuItem:pressed {{
+                background:{TEAL_PALE2};
             }}
         """)
         return btn
+
+
+class NotificationBellButton(QPushButton):
+    def __init__(self, parent=None):
+        super().__init__("!", parent)
+        self.setFixedSize(36, 36)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFont(inter(13, QFont.DemiBold))
+        self.setStyleSheet(f"""
+            QPushButton {{
+                color:{AMBER};background:{WHITE};
+                border:1px solid {GRAY_2};border-radius:6px;
+            }}
+            QPushButton:hover {{
+                background:{TEAL_PALE};border-color:{TEAL_LIGHT};
+                color:{TEAL_DARK};
+            }}
+        """)
+
+        self._badge = QLabel(self)
+        self._badge.setAlignment(Qt.AlignCenter)
+        self._badge.setFont(inter(7, QFont.Bold))
+        self._badge.setFixedSize(17, 17)
+        self._badge.hide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._badge.move(self.width() - 12, -2)
+
+    def set_unread_count(self, count):
+        count = int(count or 0)
+        if count <= 0:
+            self._badge.hide()
+            self.setToolTip("No unread notifications")
+            return
+
+        self._badge.setText("9+" if count > 9 else str(count))
+        self._badge.setStyleSheet(f"""
+            QLabel {{
+                color:{WHITE};background:{RED};
+                border:2px solid {WHITE};border-radius:8px;
+            }}
+        """)
+        self._badge.show()
+        self.setToolTip(f"{count} unread notification{'s' if count != 1 else ''}")
+
+
+class NotificationItemWidget(QFrame):
+    def __init__(self, notification, on_clicked=None, parent=None):
+        super().__init__(parent)
+        self._notification = notification or {}
+        self._on_clicked = on_clicked
+        self.setCursor(Qt.PointingHandCursor)
+        self.setObjectName("notificationItem")
+
+        is_read = bool(self._notification.get("is_read"))
+        is_high = self._notification.get("severity") == "high"
+        bg = WHITE if is_read else "#f7fcfb"
+        border = GRAY_2 if is_read else TEAL_PALE2
+        self.setStyleSheet(f"""
+            QFrame#notificationItem {{
+                background:{bg};
+                border:1px solid {border};
+                border-radius:7px;
+            }}
+            QFrame#notificationItem:hover {{
+                background:{TEAL_PALE};
+                border-color:{TEAL_LIGHT};
+            }}
+        """)
+
+        root = QHBoxLayout(self)
+        root.setContentsMargins(10, 9, 10, 9)
+        root.setSpacing(10)
+
+        dot = QFrame()
+        dot.setFixedSize(8, 8)
+        dot_color = RED if is_high and not is_read else TEAL if not is_read else GRAY_3
+        dot.setStyleSheet(f"background:{dot_color};border:none;border-radius:4px;")
+        root.addWidget(dot, 0, Qt.AlignTop)
+
+        text_col = QVBoxLayout()
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(3)
+
+        title = QLabel(str(self._notification.get("title") or "Notification"))
+        title.setFont(inter(10, QFont.DemiBold if not is_read else QFont.Medium))
+        title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+
+        message = QLabel(str(self._notification.get("message") or ""))
+        message.setWordWrap(True)
+        message.setFont(inter(9))
+        message.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+
+        meta = QLabel(str(self._notification.get("created_at_fmt") or ""))
+        meta.setFont(inter(8))
+        meta.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+        text_col.addWidget(title)
+        text_col.addWidget(message)
+        text_col.addWidget(meta)
+        root.addLayout(text_col, 1)
+
+    def mousePressEvent(self, event):
+        if self._on_clicked is not None:
+            self._on_clicked(self._notification)
+            event.accept()
+            return
+        super().mousePressEvent(event)
+
+
+class NotificationDropdown(QFrame):
+    def __init__(self, on_mark_all=None, on_item_clicked=None, parent=None):
+        super().__init__(None)
+        self._notifications = []
+        self._on_mark_all = on_mark_all
+        self._on_item_clicked = on_item_clicked
+        self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setObjectName("notificationDropdown")
+        self.setFixedWidth(360)
+        self.setStyleSheet(f"""
+            QFrame#notificationDropdown {{
+                background:{WHITE};
+                border:1px solid #dfe7e5;
+                border-radius:8px;
+            }}
+        """)
+
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(24)
+        shadow.setOffset(0, 10)
+        shadow.setColor(QColor(20, 60, 55, 58))
+        self.setGraphicsEffect(shadow)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        header = QWidget()
+        header.setStyleSheet(
+            f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};"
+            "border-top-left-radius:8px;border-top-right-radius:8px;"
+        )
+        header_lay = QHBoxLayout(header)
+        header_lay.setContentsMargins(16, 12, 12, 12)
+        header_lay.setSpacing(8)
+
+        self._title_lbl = QLabel("Notifications")
+        self._title_lbl.setFont(playfair(14, QFont.Medium))
+        self._title_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+
+        self._count_lbl = QLabel("0 unread")
+        self._count_lbl.setFont(inter(9, QFont.Medium))
+        self._count_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+
+        title_col = QVBoxLayout()
+        title_col.setContentsMargins(0, 0, 0, 0)
+        title_col.setSpacing(1)
+        title_col.addWidget(self._title_lbl)
+        title_col.addWidget(self._count_lbl)
+
+        self._mark_all_btn = QPushButton("Mark all read")
+        self._mark_all_btn.setCursor(Qt.PointingHandCursor)
+        self._mark_all_btn.setFont(inter(9, QFont.Medium))
+        self._mark_all_btn.setFixedHeight(28)
+        self._mark_all_btn.setStyleSheet(f"""
+            QPushButton {{
+                color:{TEAL_DARK};background:{TEAL_PALE};
+                border:1px solid {TEAL_PALE2};border-radius:6px;
+                padding:0 10px;
+            }}
+            QPushButton:hover {{
+                background:{TEAL_PALE2};border-color:{TEAL_LIGHT};
+            }}
+            QPushButton:disabled {{
+                color:{GRAY_4};background:{GRAY_1};border-color:{GRAY_2};
+            }}
+        """)
+        self._mark_all_btn.clicked.connect(self._mark_all)
+
+        header_lay.addLayout(title_col, 1)
+        header_lay.addWidget(self._mark_all_btn)
+        root.addWidget(header)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setStyleSheet(owner_scrollbar_qss())
+
+        self._list_widget = QWidget()
+        self._list_widget.setStyleSheet("background:transparent;border:none;")
+        self._list_lay = QVBoxLayout(self._list_widget)
+        self._list_lay.setContentsMargins(12, 12, 12, 12)
+        self._list_lay.setSpacing(8)
+        self._scroll.setWidget(self._list_widget)
+        root.addWidget(self._scroll)
+
+    def notification_keys(self):
+        return [item.get("key") for item in self._notifications if item.get("key")]
+
+    def _clear_items(self):
+        while self._list_lay.count():
+            item = self._list_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def set_notifications(self, notifications):
+        self._notifications = list(notifications or [])
+        unread = sum(1 for item in self._notifications if not item.get("is_read"))
+        self._count_lbl.setText(f"{unread} unread")
+        self._mark_all_btn.setEnabled(unread > 0)
+        self._clear_items()
+
+        if not self._notifications:
+            empty = QLabel("No notifications right now.")
+            empty.setAlignment(Qt.AlignCenter)
+            empty.setFont(inter(10))
+            empty.setWordWrap(True)
+            empty.setMinimumHeight(120)
+            empty.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+            self._list_lay.addWidget(empty)
+        else:
+            for notification in self._notifications:
+                self._list_lay.addWidget(
+                    NotificationItemWidget(notification, self._on_item_clicked)
+                )
+            self._list_lay.addStretch()
+
+        visible_rows = min(max(len(self._notifications), 1), 5)
+        scroll_height = 72 + (visible_rows * 86)
+        self._scroll.setFixedHeight(scroll_height)
+        self.setFixedHeight(61 + scroll_height)
+
+    def _mark_all(self):
+        if self._on_mark_all is not None:
+            self._on_mark_all()
 
 
 # ── Modal base ────────────────────────────────────────────────────────────────
@@ -349,7 +605,7 @@ class ModalOverlay(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
-        self.setStyleSheet("background: rgba(0,0,0,120);")
+        self.setStyleSheet("background: rgba(12, 38, 35, 112);")
         self.hide()
 
     def mousePressEvent(self, event):
@@ -390,35 +646,29 @@ class SuccessIcon(QWidget):
         painter.end()
 
 
-class AutoCloseSuccessPopup(QWidget):
-    def __init__(self, parent=None, title="Success", message="", duration_ms=5000):
+class OkSuccessPopup(QWidget):
+    def __init__(self, parent=None, title="Success", message=""):
         super().__init__(parent, Qt.Dialog | Qt.FramelessWindowHint)
-        self._duration_ms = duration_ms
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setWindowModality(Qt.WindowModal)
-        self.setFixedSize(430, 166)
+        self.setFixedSize(406, 162)
 
         root = QVBoxLayout(self)
-        root.setContentsMargins(12, 12, 12, 12)
+        root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
         card = QFrame()
-        card.setObjectName("successPopup")
+        card.setObjectName("okSuccessPopup")
         card.setStyleSheet(f"""
-            QFrame#successPopup {{
+            QFrame#okSuccessPopup {{
                 background:{WHITE};
-                border:1px solid {GRAY_2};
+                border:none;
                 border-radius:10px;
             }}
         """)
-        shadow = QGraphicsDropShadowEffect(card)
-        shadow.setBlurRadius(34)
-        shadow.setOffset(0, 12)
-        shadow.setColor(QColor(0, 0, 0, 70))
-        card.setGraphicsEffect(shadow)
 
         lay = QVBoxLayout(card)
-        lay.setContentsMargins(20, 18, 20, 14)
+        lay.setContentsMargins(22, 20, 22, 18)
         lay.setSpacing(12)
 
         content = QHBoxLayout()
@@ -439,29 +689,41 @@ class AutoCloseSuccessPopup(QWidget):
         msg_lbl.setFont(inter(12))
         msg_lbl.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
 
-        countdown = QLabel("This will close automatically in 5 seconds.")
-        countdown.setFont(inter(9))
-        countdown.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-
         text_col.addWidget(title_lbl)
         text_col.addWidget(msg_lbl)
-        text_col.addWidget(countdown)
+        text_col.addStretch()
         content.addLayout(text_col, 1)
         lay.addLayout(content)
 
-        progress_track = QFrame()
-        progress_track.setFixedHeight(4)
-        progress_track.setStyleSheet(f"background:{TEAL_PALE2};border:none;border-radius:2px;")
-        progress_lay = QHBoxLayout(progress_track)
-        progress_lay.setContentsMargins(0, 0, 0, 0)
-        progress_lay.setSpacing(0)
+        footer = QHBoxLayout()
+        footer.setContentsMargins(0, 0, 0, 0)
+        footer.addStretch()
 
-        self._progress_fill = QFrame()
-        self._progress_fill.setStyleSheet(f"background:{TEAL};border:none;border-radius:2px;")
-        progress_lay.addWidget(self._progress_fill)
-        lay.addWidget(progress_track)
+        ok_btn = QPushButton("OK")
+        ok_btn.setCursor(Qt.PointingHandCursor)
+        ok_btn.setDefault(True)
+        ok_btn.setFixedHeight(38)
+        ok_btn.setMinimumWidth(96)
+        ok_btn.setFont(inter(12, QFont.Medium))
+        ok_btn.setStyleSheet(f"""
+            QPushButton {{
+                color:{WHITE};background:{TEAL};
+                border:1px solid {TEAL};border-radius:7px;
+                padding:0 22px;
+            }}
+            QPushButton:hover {{
+                background:{TEAL_DARK};border-color:{TEAL_DARK};
+            }}
+            QPushButton:pressed {{
+                background:{TEAL_DARK};border-color:{TEAL_DARK};
+            }}
+        """)
+        ok_btn.clicked.connect(self.close)
+        footer.addWidget(ok_btn)
+        lay.addLayout(footer)
 
         root.addWidget(card)
+        self._ok_btn = ok_btn
 
     def show_centered(self):
         if self.parent():
@@ -472,24 +734,14 @@ class AutoCloseSuccessPopup(QWidget):
             )
         self.show()
         self.raise_()
-        QTimer.singleShot(0, self._start_auto_close)
-
-    def _start_auto_close(self):
-        width = self._progress_fill.parentWidget().width()
-        self._progress_fill.setMinimumWidth(0)
-        self._progress_anim = QPropertyAnimation(self._progress_fill, b"maximumWidth", self)
-        self._progress_anim.setStartValue(width)
-        self._progress_anim.setEndValue(0)
-        self._progress_anim.setDuration(self._duration_ms)
-        self._progress_anim.setEasingCurve(QEasingCurve.Linear)
-        self._progress_anim.start()
-        QTimer.singleShot(self._duration_ms, self.close)
+        self.activateWindow()
+        self._ok_btn.setFocus()
 
 
-def show_success_popup(parent, title, message, duration_ms=5000):
-    popup = AutoCloseSuccessPopup(parent, title, message, duration_ms)
+def show_ok_success_popup(parent, title, message):
+    popup = OkSuccessPopup(parent, title, message)
     if parent is not None:
-        parent._success_popup = popup
+        parent._ok_success_popup = popup
     popup.show_centered()
     return popup
 
@@ -499,19 +751,22 @@ class Modal(QFrame):
         super().__init__(parent)
         self._drag_active = False
         self._drag_offset = QPoint()
+        self._modal_width = 500
+        self._header_height = 68
+        self._footer_height = 66
         self.setObjectName("modal")
-        self.setFixedWidth(480)
+        self.setFixedWidth(self._modal_width)
         self.setStyleSheet(f"""
             QFrame#modal {{
                 background:{WHITE};
-                border:1px solid {GRAY_2};
-                border-radius:12px;
+                border:1px solid #dfe7e5;
+                border-radius:10px;
             }}
         """)
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(40)
-        shadow.setOffset(0, 12)
-        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setBlurRadius(42)
+        shadow.setOffset(0, 16)
+        shadow.setColor(QColor(16, 45, 42, 76))
         self.setGraphicsEffect(shadow)
 
         self._lay = QVBoxLayout(self)
@@ -520,17 +775,18 @@ class Modal(QFrame):
 
         # Header
         header = QWidget()
-        header.setFixedHeight(56)
+        header.setFixedHeight(self._header_height)
         header.setStyleSheet(
-            f"background:{TEAL_DARK};border:none;"
-            f"border-top-left-radius:12px;border-top-right-radius:12px;"
+            f"background:#fbfdfc;border:none;border-bottom:1px solid {GRAY_2};"
+            "border-top-left-radius:10px;border-top-right-radius:10px;"
         )
         h_lay = QHBoxLayout(header)
-        h_lay.setContentsMargins(20, 0, 20, 0)
+        h_lay.setContentsMargins(24, 0, 18, 0)
+        h_lay.setSpacing(12)
 
         title_lbl = QLabel(title)
-        title_lbl.setFont(playfair(15, QFont.Medium))
-        title_lbl.setStyleSheet("color:#ffffff;background:transparent;border:none;")
+        title_lbl.setFont(playfair(17, QFont.Medium))
+        title_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
         h_lay.addWidget(title_lbl)
         h_lay.addStretch()
@@ -540,30 +796,31 @@ class Modal(QFrame):
         self.body.setStyleSheet("background:transparent;border:none;")
         self.body.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.body_lay = QVBoxLayout(self.body)
-        self.body_lay.setContentsMargins(24, 20, 24, 20)
-        self.body_lay.setSpacing(16)
+        self.body_lay.setContentsMargins(24, 22, 24, 22)
+        self.body_lay.setSpacing(14)
         self._lay.addWidget(self.body)
 
         # Footer
         footer = QWidget()
-        footer.setFixedHeight(56)
+        footer.setFixedHeight(self._footer_height)
         footer.setStyleSheet(
-            f"background:#f9fafa;border:none;"
-            f"border-bottom-left-radius:12px;border-bottom-right-radius:12px;"
+            f"background:#fbfdfc;border:none;border-top:1px solid {GRAY_2};"
+            "border-bottom-left-radius:10px;border-bottom-right-radius:10px;"
         )
         f_lay = QHBoxLayout(footer)
-        f_lay.setContentsMargins(20, 0, 20, 0)
-        f_lay.setSpacing(10)
+        f_lay.setContentsMargins(24, 0, 24, 0)
+        f_lay.setSpacing(12)
         f_lay.addStretch()
 
         self.cancel_btn = QPushButton("Cancel")
         self.cancel_btn.setCursor(Qt.PointingHandCursor)
         self.cancel_btn.setFont(inter(12, QFont.Medium))
-        self.cancel_btn.setFixedHeight(34)
+        self.cancel_btn.setFixedHeight(38)
+        self.cancel_btn.setMinimumWidth(104)
         self.cancel_btn.setStyleSheet(f"""
             QPushButton{{
                 color:{GRAY_5};background:{WHITE};
-                border:1px solid {GRAY_2};border-radius:6px;
+                border:1px solid {GRAY_2};border-radius:7px;
                 padding:0 18px;
             }}
             QPushButton:hover{{background:{GRAY_1};border-color:{GRAY_3};}}
@@ -573,14 +830,16 @@ class Modal(QFrame):
         self.save_btn = QPushButton("Save changes")
         self.save_btn.setCursor(Qt.PointingHandCursor)
         self.save_btn.setFont(inter(12, QFont.Medium))
-        self.save_btn.setFixedHeight(34)
+        self.save_btn.setFixedHeight(38)
+        self.save_btn.setMinimumWidth(132)
         self.save_btn.setStyleSheet(f"""
             QPushButton{{
                 color:{WHITE};background:{TEAL};
-                border:1px solid {TEAL};border-radius:6px;
+                border:1px solid {TEAL};border-radius:7px;
                 padding:0 18px;
             }}
             QPushButton:hover{{background:{TEAL_DARK};border-color:{TEAL_DARK};}}
+            QPushButton:pressed{{background:{TEAL_DARK};border-color:{TEAL_DARK};}}
         """)
 
         f_lay.addWidget(self.cancel_btn)
@@ -588,7 +847,8 @@ class Modal(QFrame):
         self._lay.addWidget(footer)
 
     def _on_close(self):
-        self.parent().hide()
+        if self.parent() is not None:
+            self.parent().hide()
 
     def _adjust_height(self):
         self.body.setFixedWidth(self.width())
@@ -599,11 +859,11 @@ class Modal(QFrame):
 
         self.body_lay.activate()
         self.body.adjustSize()
-        body_h = self.body_lay.sizeHint().height() + 16
+        body_h = self.body_lay.sizeHint().height() + 8
         self.body.setMinimumHeight(body_h)
         self.body.setMaximumHeight(body_h)
-        self.setFixedHeight(56 + body_h + 56)
-        self.setFixedWidth(480)
+        self.setFixedHeight(self._header_height + body_h + self._footer_height)
+        self.setFixedWidth(self._modal_width)
 
     def _set_body_height(self, body_h):
         self.body.setFixedWidth(self.width())
@@ -613,11 +873,11 @@ class Modal(QFrame):
                 item.widget().setFixedWidth(self.width() - 48)
         self.body.setMinimumHeight(body_h)
         self.body.setMaximumHeight(body_h)
-        self.setFixedHeight(56 + body_h + 56)
-        self.setFixedWidth(480)
+        self.setFixedHeight(self._header_height + body_h + self._footer_height)
+        self.setFixedWidth(self._modal_width)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and event.position().y() <= 56:
+        if event.button() == Qt.LeftButton and event.position().y() <= self._header_height:
             self._drag_active = True
             self._drag_offset = event.position().toPoint()
             event.accept()
@@ -653,24 +913,29 @@ class Modal(QFrame):
         g_lay.setSpacing(6)
 
         lbl = QLabel(label_text)
-        lbl.setFont(inter(10, QFont.DemiBold))
-        lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.2px;background:transparent;border:none;")
+        lbl.setFont(inter(9, QFont.DemiBold))
+        lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1px;background:transparent;border:none;")
 
         inp = PasswordLineEdit() if echo == QLineEdit.Password else QLineEdit()
         inp.setPlaceholderText(placeholder)
         inp.setEchoMode(echo)
         inp.setFont(inter(12))
-        inp.setFixedHeight(44)
+        inp.setFixedHeight(46)
         inp.setMinimumWidth(0)
         inp.setMaximumWidth(16777215)
         inp.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         inp.setStyleSheet(f"""
             QLineEdit{{
-                min-height:44px;
-                max-height:44px;
-                color:{GRAY_5};background:#f9fafa;
-                border:1.5px solid {GRAY_2};border-radius:6px;
-                padding:0 12px;
+                min-height:46px;
+                max-height:46px;
+                color:{GRAY_5};background:#f8fbfa;
+                border:1.5px solid {GRAY_2};border-radius:8px;
+                padding:0 14px;
+                selection-background-color:{TEAL_PALE2};
+                selection-color:{TEAL_DARK};
+            }}
+            QLineEdit:hover{{
+                border-color:{GRAY_3};background:{WHITE};
             }}
             QLineEdit:focus{{
                 border-color:{TEAL};background:{WHITE};
@@ -714,7 +979,13 @@ class EditNameModal(ModalOverlay):
         self.err_lbl = QLabel("")
         self.err_lbl.setFont(inter(11))
         self.err_lbl.setWordWrap(True)
-        self.err_lbl.setStyleSheet(f"color:{RED};background:transparent;border:none;")
+        self.err_lbl.setStyleSheet(f"""
+            QLabel{{
+                color:{RED};background:{RED_BG};
+                border:1px solid #f4caca;border-radius:7px;
+                padding:9px 10px;
+            }}
+        """)
         self.err_lbl.hide()
         self._modal.body_lay.addWidget(self.err_lbl)
 
@@ -727,6 +998,10 @@ class EditNameModal(ModalOverlay):
         self.username_input.setText(current_username)
         self.email_input.setText(current_email or "")
         self.err_lbl.hide()
+        for inp in [self.name_input, self.username_input, self.email_input]:
+            inp.setStyleSheet(inp.styleSheet().replace(
+                f"border:1.5px solid {RED}", f"border:1.5px solid {GRAY_2}"
+            ))
         if self.parent():
             self.setGeometry(self.parent().rect())
         self.show()
@@ -743,6 +1018,9 @@ class EditNameModal(ModalOverlay):
             _shake(f, self, offset=6)
         self._modal._adjust_height()
         self._center_modal()
+
+    def show_error_message(self, msg):
+        self._show_error(msg)
 
     def _save(self):
         from utils.validators import validate_email
@@ -799,7 +1077,13 @@ class ChangePasswordModal(ModalOverlay):
         self.err_lbl = QLabel("")
         self.err_lbl.setFont(inter(11))
         self.err_lbl.setWordWrap(True)
-        self.err_lbl.setStyleSheet(f"color:{RED};background:transparent;border:none;")
+        self.err_lbl.setStyleSheet(f"""
+            QLabel{{
+                color:{RED};background:{RED_BG};
+                border:1px solid #f4caca;border-radius:7px;
+                padding:9px 10px;
+            }}
+        """)
         self.err_lbl.hide()
         self._modal.body_lay.addWidget(self.err_lbl)
 
@@ -832,6 +1116,9 @@ class ChangePasswordModal(ModalOverlay):
             _shake(f, self, offset=6)
         self._modal._adjust_height()
         self._center_modal()
+
+    def show_error_message(self, msg):
+        self._show_error(msg)
 
     def _save(self):
         from utils.validators import validate_password_strength
@@ -1062,9 +1349,10 @@ class ForgotPasswordModal(ModalOverlay):
         try:
             LoginModel.reset_password(self._user_id, new_pass)
             self.hide()
-            QMessageBox.information(
-                self.parent(), "Password Reset",
-                "Your password has been reset successfully. Please sign in."
+            show_ok_success_popup(
+                self.parent(),
+                "Password Reset",
+                "Your password has been reset successfully. Please sign in.",
             )
         except ValueError as exc:
             self._show_error(str(exc))
@@ -1152,6 +1440,8 @@ class DashboardView(QMainWindow):
         self._dashboard_data = self._empty_dashboard_data()
         self._dashboard_refresh_interval_ms = 15000
         self._account_controller = AccountController()
+        self._notification_controller = NotificationController(self._user)
+        self._notifications = []
         self._dropdown_open = False
         self.setWindowTitle("G and C LPG Trading — Delivery Scheduling & Tracking System")
         self._build_ui()
@@ -1434,6 +1724,12 @@ class DashboardView(QMainWindow):
         self._dashboard_refresh_timer = QTimer(self)
         self._dashboard_refresh_timer.setInterval(self._dashboard_refresh_interval_ms)
         self._dashboard_refresh_timer.timeout.connect(self._refresh_dashboard_if_visible)
+
+        self._notification_timer = QTimer(self)
+        self._notification_timer.setInterval(15000)
+        self._notification_timer.timeout.connect(self._refresh_notifications)
+        self._notification_timer.start()
+        QTimer.singleShot(0, self._refresh_notifications)
 
         # Modals — children of central so they cover everything
         self._name_modal = EditNameModal(central)
@@ -1951,33 +2247,29 @@ class DashboardView(QMainWindow):
                 new_name, new_username, new_email
             )
             self._refresh_profile_texts()
-            QMessageBox.information(self, "Profile Updated", "Your profile has been updated.")
+            show_ok_success_popup(self, "Profile Updated", "Your profile has been updated.")
             return True
         except ValueError as exc:
-            self._name_modal.err_lbl.setText(str(exc))
-            self._name_modal.err_lbl.show()
+            self._name_modal.show_error_message(str(exc))
             return False
         except Exception as exc:
             from utils.error_handler import clean_db_error
 
-            self._name_modal.err_lbl.setText(clean_db_error(exc))
-            self._name_modal.err_lbl.show()
+            self._name_modal.show_error_message(clean_db_error(exc))
             return False
 
     def _do_change_password(self, current, new):
         try:
             self._account_controller.change_password(current, new)
-            show_success_popup(self, "Password Updated", "Your password has been updated.")
+            show_ok_success_popup(self, "Password Updated", "Your password has been updated.")
             return True
         except ValueError as exc:
-            self._pass_modal.err_lbl.setText(str(exc))
-            self._pass_modal.err_lbl.show()
+            self._pass_modal.show_error_message(str(exc))
             return False
         except Exception as exc:
             from utils.error_handler import clean_db_error
 
-            self._pass_modal.err_lbl.setText(clean_db_error(exc))
-            self._pass_modal.err_lbl.show()
+            self._pass_modal.show_error_message(clean_db_error(exc))
             return False
 
     def _quick_action_add_customer(self, event=None):
@@ -2054,7 +2346,14 @@ class DashboardView(QMainWindow):
             }}
             QPushButton:hover{{background:{GRAY_1};}}
         """)
-        lay.addWidget(notif)
+        self._notif_btn = NotificationBellButton()
+        self._notif_btn.clicked.connect(self._toggle_notifications)
+        lay.addWidget(self._notif_btn)
+
+        self._notification_dropdown = NotificationDropdown(
+            on_mark_all=self._mark_all_notifications_read,
+            on_item_clicked=self._open_notification,
+        )
 
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -2064,6 +2363,62 @@ class DashboardView(QMainWindow):
 
     def _tick(self):
         self._clock_lbl.setText(QTime.currentTime().toString("hh:mm:ss"))
+
+    def _refresh_notifications(self):
+        if not hasattr(self, "_notification_dropdown"):
+            return
+
+        success, result = self._notification_controller.list_notifications()
+        if not success:
+            if hasattr(self, "_notif_btn"):
+                self._notif_btn.set_unread_count(0)
+                self._notif_btn.setToolTip(f"Notifications unavailable: {result}")
+            return
+
+        self._notifications = result or []
+        unread = sum(1 for item in self._notifications if not item.get("is_read"))
+        self._notif_btn.set_unread_count(unread)
+        self._notification_dropdown.set_notifications(self._notifications)
+
+    def _toggle_notifications(self):
+        if self._notification_dropdown.isVisible():
+            self._notification_dropdown.hide()
+            return
+
+        self._refresh_notifications()
+        global_pos = self._notif_btn.mapToGlobal(
+            QPoint(self._notif_btn.width() - self._notification_dropdown.width(), self._notif_btn.height() + 8)
+        )
+        self._notification_dropdown.move(global_pos)
+        self._notification_dropdown.show()
+        self._notification_dropdown.raise_()
+
+    def _mark_all_notifications_read(self):
+        keys = self._notification_dropdown.notification_keys()
+        success, _ = self._notification_controller.mark_all_read(keys)
+        if success:
+            self._refresh_notifications()
+
+    def _open_notification(self, notification):
+        key = (notification or {}).get("key")
+        if key:
+            self._notification_controller.mark_read(key)
+        self._notification_dropdown.hide()
+        self._refresh_notifications()
+        self._navigate_notification_action((notification or {}).get("action"))
+
+    def _navigate_notification_action(self, action):
+        action = str(action or "").strip().lower()
+        routes = {
+            "deliveries": self._show_deliveries_page,
+            "transactions": self._show_transactions_page,
+            "customers": self._show_customers_page,
+            "products": self._show_products_page,
+            "audit_logs": self._show_audit_logs_page,
+        }
+        handler = routes.get(action)
+        if handler is not None:
+            handler()
 
     # ── Main content ──────────────────────────────────────────────────────────
     def _build_content(self):
@@ -2513,6 +2868,8 @@ class DashboardView(QMainWindow):
         if self._dropdown_open:
             self._dropdown.hide()
             self._sync_dropdown_state()
+        if hasattr(self, "_notification_dropdown") and self._notification_dropdown.isVisible():
+            self._notification_dropdown.hide()
         super().mousePressEvent(event)
 
 

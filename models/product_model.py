@@ -27,13 +27,16 @@ class ProductModel:
                     FORMAT(p.refill_price,   2)                         AS refill_price_fmt,
                     FORMAT(p.new_tank_price, 2)                         AS new_tank_price_fmt,
                     p.is_active,
-                    (
-                        SELECT COUNT(*)
-                        FROM delivery_items di
-                        WHERE di.product_id = p.id
-                    )                                                   AS times_ordered
+                    COALESCE(SUM(di.quantity), 0)                       AS total_sold,
+                    COUNT(DISTINCT di.delivery_id)                      AS total_deliveries,
+                    COUNT(di.id)                                        AS times_ordered
                 FROM lpg_products p
+                LEFT JOIN delivery_items di ON di.product_id = p.id
                 WHERE p.is_active = 1
+                GROUP BY
+                    p.id, p.name, p.cylinder_size,
+                    p.refill_price, p.new_tank_price,
+                    p.is_active
                 ORDER BY p.name ASC
             """)
             return cursor.fetchall()
@@ -96,8 +99,12 @@ class ProductModel:
                     p.new_tank_price,
                     FORMAT(p.refill_price,   2)                         AS refill_price_fmt,
                     FORMAT(p.new_tank_price, 2)                         AS new_tank_price_fmt,
-                    p.is_active
+                    p.is_active,
+                    COALESCE(SUM(di.quantity), 0)                       AS total_sold,
+                    COUNT(DISTINCT di.delivery_id)                      AS total_deliveries,
+                    COUNT(di.id)                                        AS times_ordered
                 FROM lpg_products p
+                LEFT JOIN delivery_items di ON di.product_id = p.id
                 WHERE
                     p.is_active = 1
                     AND (
@@ -105,6 +112,10 @@ class ProductModel:
                         LOWER(TRIM(p.cylinder_size)) LIKE %s OR
                         LOWER(CONCAT(TRIM(p.name), ' ', COALESCE(p.cylinder_size, ''))) LIKE %s
                     )
+                GROUP BY
+                    p.id, p.name, p.cylinder_size,
+                    p.refill_price, p.new_tank_price,
+                    p.is_active
                 ORDER BY p.name ASC
             """, (term, term, term))
             return cursor.fetchall()
@@ -238,14 +249,20 @@ class ProductModel:
                 cursor.execute("""
                     SELECT id FROM lpg_products
                     WHERE is_active = 1
-                      AND normalized_name = TRIM(
+                      AND TRIM(
+                          REGEXP_REPLACE(
+                              REGEXP_REPLACE(LOWER(TRIM(COALESCE(name, ''))), '[^a-z0-9 ]', ''),
+                              '\\s+',
+                              ' '
+                          )
+                      ) = TRIM(
                           REGEXP_REPLACE(
                               REGEXP_REPLACE(LOWER(TRIM(%s)), '[^a-z0-9 ]', ''),
                               '\\s+',
                               ' '
                           )
                       )
-                      AND normalized_cylinder_size = LOWER(TRIM(%s))
+                      AND LOWER(TRIM(COALESCE(cylinder_size, ''))) = LOWER(TRIM(%s))
                       AND id != %s
                     LIMIT 1
                 """, (name, cylinder_size, exclude_id))
@@ -253,14 +270,20 @@ class ProductModel:
                 cursor.execute("""
                     SELECT id FROM lpg_products
                     WHERE is_active = 1
-                      AND normalized_name = TRIM(
+                      AND TRIM(
+                          REGEXP_REPLACE(
+                              REGEXP_REPLACE(LOWER(TRIM(COALESCE(name, ''))), '[^a-z0-9 ]', ''),
+                              '\\s+',
+                              ' '
+                          )
+                      ) = TRIM(
                           REGEXP_REPLACE(
                               REGEXP_REPLACE(LOWER(TRIM(%s)), '[^a-z0-9 ]', ''),
                               '\\s+',
                               ' '
                           )
                       )
-                      AND normalized_cylinder_size = LOWER(TRIM(%s))
+                      AND LOWER(TRIM(COALESCE(cylinder_size, ''))) = LOWER(TRIM(%s))
                     LIMIT 1
                 """, (name, cylinder_size))
             return cursor.fetchone() is not None

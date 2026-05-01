@@ -43,10 +43,7 @@ class AdminTransactionController(QObject):
         try:
             TransactionModel.mark_paid(delivery_id, user_id=user_id)
             if self._view:
-                date_from, date_to = None, None
-                if hasattr(self._view, "current_date_range"):
-                    date_from, date_to = self._view.current_date_range()
-                self.load(date_from, date_to)
+                self.load()
             return True, None
         except ValueError as exc:
             if self._view:

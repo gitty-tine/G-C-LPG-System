@@ -24,6 +24,7 @@ from PySide6.QtWidgets import (
 )
 
 from views.admin_dashboard_view import owner_scrollbar_qss
+from views.owner_products_view import OwnerProductCard, PRODUCT_CARD_WIDTH
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FONTS_DIR = os.path.join(BASE_DIR, "assets", "fonts")
@@ -267,7 +268,7 @@ class ProductView(QWidget):
         self._content = QWidget()
         self._content.setStyleSheet("background:transparent;")
         c_lay = QVBoxLayout(self._content)
-        c_lay.setContentsMargins(28, 24, 28, 28)
+        c_lay.setContentsMargins(30, 26, 30, 30)
         c_lay.setSpacing(0)
 
         left = QVBoxLayout()
@@ -281,7 +282,7 @@ class ProductView(QWidget):
         title.setFont(playfair(28, QFont.Medium))
         title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
-        page_sub = QLabel("Admin read-only product board. Owner price updates are reflected here after sync.")
+        page_sub = QLabel("View the active product catalog added by the owner.")
         page_sub.setFont(inter(12))
         page_sub.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;margin-top:4px;")
 
@@ -292,18 +293,16 @@ class ProductView(QWidget):
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search products...")
         self._search.setFont(inter(12))
-        self._search.setFixedHeight(38)
-        self._search.setMinimumWidth(920)
-        self._search.setMaximumWidth(1400)
+        self._search.setFixedHeight(40)
         self._search.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self._search.setStyleSheet(
             f"""
             QLineEdit{{
                 color:{GRAY_5};background:{WHITE};
-                border:1px solid {GRAY_2};border-radius:4px;
-                padding:0 10px;
+                border:1px solid #d5e4e1;border-radius:8px;
+                padding:0 13px;
             }}
-            QLineEdit:focus{{border-color:{TEAL};}}
+            QLineEdit:focus{{border-color:{TEAL};background:#fbfefd;}}
             """
         )
         self._search.textChanged.connect(self._on_search)
@@ -311,17 +310,26 @@ class ProductView(QWidget):
         c_lay.addLayout(left)
         c_lay.addSpacing(16)
 
+        toolbar_row = QHBoxLayout()
+        toolbar_row.setContentsMargins(0, 0, 0, 0)
+        toolbar_row.setSpacing(12)
+        toolbar_row.addWidget(self._search, 1)
+        c_lay.addLayout(toolbar_row)
+        c_lay.addSpacing(14)
+
         list_head = QWidget()
         list_head.setStyleSheet("background:transparent;border:none;")
         lh_lay = QHBoxLayout(list_head)
         lh_lay.setContentsMargins(0, 0, 0, 12)
-        lh_lay.setSpacing(18)
+        lh_lay.setSpacing(10)
 
         self._count_lbl = QLabel("0 products")
         self._count_lbl.setFont(inter(11))
-        self._count_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+        self._count_lbl.setStyleSheet(
+            f"color:{TEAL_DARK};background:{TEAL_PALE};border:1px solid #cde6e1;border-radius:12px;padding:4px 10px;"
+        )
 
-        lh_lay.addWidget(self._search, 1, Qt.AlignLeft | Qt.AlignVCenter)
+        lh_lay.addStretch()
         lh_lay.addWidget(self._count_lbl, 0, Qt.AlignRight | Qt.AlignVCenter)
         c_lay.addWidget(list_head)
 
@@ -329,8 +337,8 @@ class ProductView(QWidget):
         self._grid_wrap.setStyleSheet("background:transparent;border:none;")
         self._grid = QGridLayout(self._grid_wrap)
         self._grid.setContentsMargins(0, 0, 0, 0)
-        self._grid.setHorizontalSpacing(14)
-        self._grid.setVerticalSpacing(14)
+        self._grid.setHorizontalSpacing(16)
+        self._grid.setVerticalSpacing(16)
         self._grid.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         self._empty_state = QWidget()
@@ -438,7 +446,8 @@ class ProductView(QWidget):
         """Controller-facing entry point to display a product list."""
         self._products = list(products or [])
         self._render_grid()
-        self._count_lbl.setText(f"{len(self._products)} products")
+        count = len(self._products)
+        self._count_lbl.setText(f"{count} product{'s' if count != 1 else ''}")
         self._refresh_empty_state()
         self._list_stack.setCurrentWidget(self._grid_wrap if self._products else self._empty_state)
 
@@ -452,12 +461,14 @@ class ProductView(QWidget):
         if not self._products:
             return
 
-        columns = 4
+        spacing = self._grid.horizontalSpacing()
+        available_width = self._grid_wrap.width() or self._content.width() or (PRODUCT_CARD_WIDTH * 4)
+        columns = max(1, min(4, (available_width + spacing) // (PRODUCT_CARD_WIDTH + spacing)))
 
         for i, product in enumerate(self._products):
             row = i // columns
             col = i % columns
-            self._grid.addWidget(ProductCard(product), row, col)
+            self._grid.addWidget(OwnerProductCard(product, read_only=True), row, col)
 
         self._grid.setColumnStretch(columns, 1)
 

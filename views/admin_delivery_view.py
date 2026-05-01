@@ -7,8 +7,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
 	sys.path.insert(0, PROJECT_ROOT)
 
-from PySide6.QtCore import Qt, QTimer, QDate, QTime, QSortFilterProxyModel, QRect, QSize
-from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPen, QPixmap, QStandardItemModel, QStandardItem, QIcon, QTextCharFormat, QFontMetrics
+from PySide6.QtCore import Qt, QTimer, QDate, QTime, QSortFilterProxyModel, QRect, QRectF, QSize
+from PySide6.QtGui import QColor, QFont, QFontDatabase, QPainter, QPainterPath, QPen, QPixmap, QStandardItemModel, QStandardItem, QIcon, QTextCharFormat, QFontMetrics
 from PySide6.QtWidgets import (
 	QApplication,
 	QMainWindow,
@@ -96,12 +96,14 @@ def load_fonts():
 
 
 def playfair(size, weight=QFont.Normal):
+	size = int(size) if isinstance(size, (int, float)) and int(size) > 0 else 11
 	f = QFont(PLAYFAIR_FAMILY, size)
 	f.setWeight(weight)
 	return f
 
 
 def inter(size, weight=QFont.Normal):
+	size = int(size) if isinstance(size, (int, float)) and int(size) > 0 else 11
 	f = QFont(INTER_FAMILY, size)
 	f.setWeight(weight)
 	return f
@@ -1905,12 +1907,43 @@ class DeliveryDetailsModal(QWidget):
 		orders_lbl.setStyleSheet(f"color:{GRAY_4};letter-spacing:1.1px;background:transparent;border:none;")
 		self.body_lay.addWidget(orders_lbl)
 
+		items_table = QFrame()
+		items_table.setObjectName("detailsItemsTable")
+		items_table.setStyleSheet(
+			f"""
+			QFrame#detailsItemsTable {{
+				background:{WHITE};
+				border:1px solid {GRAY_2};
+				border-radius:8px;
+			}}
+			"""
+		)
+		items_table_lay = QVBoxLayout(items_table)
+		items_table_lay.setContentsMargins(0, 0, 0, 0)
+		items_table_lay.setSpacing(0)
+
+		items_header = QWidget()
+		items_header.setFixedHeight(42)
+		items_header.setStyleSheet(f"background:#f4f8f7;border:none;border-bottom:1px solid {GRAY_2};")
+		header_grid = QGridLayout(items_header)
+		header_grid.setContentsMargins(14, 0, 14, 0)
+		header_grid.setHorizontalSpacing(12)
+		header_grid.addWidget(self._item_header_label("PRODUCT"), 0, 0)
+		header_grid.addWidget(self._item_header_label("QTY", Qt.AlignCenter), 0, 1)
+		header_grid.addWidget(self._item_header_label("TYPE"), 0, 2)
+		header_grid.addWidget(self._item_header_label("SUBTOTAL", Qt.AlignRight | Qt.AlignVCenter), 0, 3)
+		header_grid.setColumnStretch(0, 1)
+		header_grid.setColumnMinimumWidth(1, 56)
+		header_grid.setColumnMinimumWidth(2, 120)
+		header_grid.setColumnMinimumWidth(3, 120)
+		items_table_lay.addWidget(items_header)
+
 		self.items_scroll = QScrollArea()
 		self.items_scroll.setWidgetResizable(True)
 		self.items_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 		self.items_scroll.setStyleSheet(
 			f"""
-			QScrollArea {{ background:{WHITE}; border:none; }}
+			QScrollArea {{ background:{WHITE}; border:none; border-bottom-left-radius:8px; border-bottom-right-radius:8px; }}
 			QScrollBar:vertical {{ background:transparent; width:10px; margin:6px 2px 6px 0; }}
 			QScrollBar::handle:vertical {{ background:rgba(26,122,110,0.26); min-height:26px; border-radius:5px; }}
 			QScrollBar::handle:vertical:hover {{ background:rgba(26,122,110,0.40); }}
@@ -1925,10 +1958,11 @@ class DeliveryDetailsModal(QWidget):
 		self.items_holder.setStyleSheet(f"background:{WHITE};border:none;")
 		self.items_lay = QVBoxLayout(self.items_holder)
 		self.items_lay.setContentsMargins(0, 0, 0, 0)
-		self.items_lay.setSpacing(10)
+		self.items_lay.setSpacing(0)
 		self.items_scroll.setWidget(self.items_holder)
 
-		self.body_lay.addWidget(self.items_scroll)
+		items_table_lay.addWidget(self.items_scroll)
+		self.body_lay.addWidget(items_table)
 
 		total_row = QFrame()
 		total_row.setFixedHeight(54)
@@ -1972,6 +2006,21 @@ class DeliveryDetailsModal(QWidget):
 		grid.addWidget(container, row, col)
 		return val
 
+	def _item_header_label(self, text, alignment=Qt.AlignLeft | Qt.AlignVCenter):
+		label = QLabel(text)
+		label.setFont(inter(9, QFont.DemiBold))
+		label.setAlignment(alignment)
+		label.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;letter-spacing:1px;")
+		return label
+
+	def _item_cell(self, text, color=GRAY_5, weight=QFont.Normal, alignment=Qt.AlignLeft | Qt.AlignVCenter):
+		label = QLabel(str(text or "-"))
+		label.setFont(inter(11, weight))
+		label.setAlignment(alignment)
+		label.setWordWrap(True)
+		label.setStyleSheet(f"color:{color};background:transparent;border:none;")
+		return label
+
 	def _clear_items_list(self):
 		while self.items_lay.count():
 			item = self.items_lay.takeAt(0)
@@ -1982,32 +2031,34 @@ class DeliveryDetailsModal(QWidget):
 
 	def _add_item_row(self, item):
 		row = QWidget()
-		row.setStyleSheet("background:#f7fbfa;border:1px solid #dbe9e5;border-radius:10px;")
-		row_lay = QVBoxLayout(row)
-		row_lay.setContentsMargins(16, 14, 16, 14)
-		row_lay.setSpacing(4)
+		row.setMinimumHeight(52)
+		row.setStyleSheet(
+			"QWidget{background:#fbfdfc;border:none;border-bottom:1px solid #edf2f0;}"
+			"QWidget:hover{background:#eef8f6;}"
+		)
+		row_grid = QGridLayout(row)
+		row_grid.setContentsMargins(14, 8, 14, 8)
+		row_grid.setHorizontalSpacing(12)
+		row_grid.setVerticalSpacing(0)
 
-		top = QHBoxLayout()
-		top.setContentsMargins(0, 0, 0, 0)
-		top.setSpacing(8)
+		product_lbl = self._item_cell(item.get("product_name"), TEAL_DARK, QFont.DemiBold)
+		qty_lbl = self._item_cell(item.get("quantity"), GRAY_5, QFont.Medium, Qt.AlignCenter)
+		type_lbl = self._item_cell(display_item_type(item.get("type")), GRAY_5)
+		amount_lbl = self._item_cell(
+			f"Php {float(item.get('subtotal') or 0):,.2f}",
+			TEAL_DARK,
+			QFont.DemiBold,
+			Qt.AlignRight | Qt.AlignVCenter,
+		)
 
-		product_lbl = QLabel(item["product_name"])
-		product_lbl.setFont(inter(12, QFont.DemiBold))
-		product_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-
-		amount_lbl = QLabel(f"Php {item['subtotal']:,.2f}")
-		amount_lbl.setFont(inter(12, QFont.DemiBold))
-		amount_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
-
-		top.addWidget(product_lbl)
-		top.addStretch()
-		top.addWidget(amount_lbl)
-		row_lay.addLayout(top)
-
-		bottom = QLabel(f"Qty: {item['quantity']}   Type: {item['type']}")
-		bottom.setFont(inter(10, QFont.Medium))
-		bottom.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-		row_lay.addWidget(bottom)
+		row_grid.addWidget(product_lbl, 0, 0)
+		row_grid.addWidget(qty_lbl, 0, 1)
+		row_grid.addWidget(type_lbl, 0, 2)
+		row_grid.addWidget(amount_lbl, 0, 3)
+		row_grid.setColumnStretch(0, 1)
+		row_grid.setColumnMinimumWidth(1, 56)
+		row_grid.setColumnMinimumWidth(2, 120)
+		row_grid.setColumnMinimumWidth(3, 120)
 
 		self.items_lay.addWidget(row)
 
@@ -2040,15 +2091,21 @@ class DeliveryDetailsModal(QWidget):
 		self._clear_items_list()
 		items = delivery.get("items") or []
 		if not items:
+			empty_row = QWidget()
+			empty_row.setMinimumHeight(52)
+			empty_row.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid #edf2f0;")
+			empty_lay = QHBoxLayout(empty_row)
+			empty_lay.setContentsMargins(14, 0, 14, 0)
 			empty_item = QLabel("No items recorded for this delivery.")
 			empty_item.setFont(inter(11))
 			empty_item.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-			self.items_lay.addWidget(empty_item)
+			empty_lay.addWidget(empty_item)
+			self.items_lay.addWidget(empty_row)
 		for item in items:
 			self._add_item_row(item)
 		self.items_holder.adjustSize()
 		items_height = self.items_holder.sizeHint().height()
-		self.items_scroll.setFixedHeight(min(320, max(0, items_height)))
+		self.items_scroll.setFixedHeight(min(320, max(52, items_height)))
 
 		self.total_lbl.setText(f"Php {delivery['total_amount']:,.2f}")
 
@@ -2108,6 +2165,142 @@ class DeliveryDetailsModal(QWidget):
 
 
 
+DELIVERY_TABLE_COLUMN_COUNT = 6
+
+
+def _delivery_row_rect(option):
+	rect = QRect(option.rect)
+	rect.adjust(0, 6, 0, -6)
+	return rect
+
+
+def _delivery_row_is_hovered(table, option, index):
+	if option.state & QStyle.State_MouseOver:
+		return True
+	if table is not None and getattr(table, "_delivery_hovered_row", -1) == index.row():
+		return True
+	return False
+
+
+def _delivery_segment_path(rect, column, column_count, radius):
+	path = QPainterPath()
+	left = rect.left()
+	right = rect.right()
+	top = rect.top()
+	bottom = rect.bottom()
+
+	if column_count <= 1:
+		path.addRoundedRect(QRectF(rect), radius, radius)
+	elif column == 0:
+		path.moveTo(right, top)
+		path.lineTo(left + radius, top)
+		path.quadTo(left, top, left, top + radius)
+		path.lineTo(left, bottom - radius)
+		path.quadTo(left, bottom, left + radius, bottom)
+		path.lineTo(right, bottom)
+		path.lineTo(right, top)
+	elif column == column_count - 1:
+		path.moveTo(left, top)
+		path.lineTo(right - radius, top)
+		path.quadTo(right, top, right, top + radius)
+		path.lineTo(right, bottom - radius)
+		path.quadTo(right, bottom, right - radius, bottom)
+		path.lineTo(left, bottom)
+		path.lineTo(left, top)
+	else:
+		path.addRect(QRectF(rect))
+	path.closeSubpath()
+	return path
+
+
+def _paint_delivery_row_segment(painter, option, index, hovered=False):
+	column = index.column()
+	rect = _delivery_row_rect(option)
+	if column == 0:
+		rect.adjust(0, 0, 1, 0)
+	elif column == DELIVERY_TABLE_COLUMN_COUNT - 1:
+		rect.adjust(-1, 0, 0, 0)
+	else:
+		rect.adjust(-1, 0, 1, 0)
+
+	radius = 7
+	bg = QColor("#eef8f6" if hovered else "#fbfdfc")
+	border = QColor("#dfe8e5")
+
+	painter.setRenderHint(QPainter.Antialiasing)
+	painter.fillPath(_delivery_segment_path(rect, column, DELIVERY_TABLE_COLUMN_COUNT, radius), bg)
+	painter.setPen(QPen(border, 1))
+
+	if DELIVERY_TABLE_COLUMN_COUNT <= 1:
+		painter.drawRoundedRect(rect, radius, radius)
+		return
+
+	if column == 0:
+		path = QPainterPath()
+		path.moveTo(rect.right(), rect.top())
+		path.lineTo(rect.left() + radius, rect.top())
+		path.quadTo(rect.left(), rect.top(), rect.left(), rect.top() + radius)
+		path.lineTo(rect.left(), rect.bottom() - radius)
+		path.quadTo(rect.left(), rect.bottom(), rect.left() + radius, rect.bottom())
+		path.lineTo(rect.right(), rect.bottom())
+		painter.drawPath(path)
+	elif column == DELIVERY_TABLE_COLUMN_COUNT - 1:
+		path = QPainterPath()
+		path.moveTo(rect.left(), rect.top())
+		path.lineTo(rect.right() - radius, rect.top())
+		path.quadTo(rect.right(), rect.top(), rect.right(), rect.top() + radius)
+		path.lineTo(rect.right(), rect.bottom() - radius)
+		path.quadTo(rect.right(), rect.bottom(), rect.right() - radius, rect.bottom())
+		path.lineTo(rect.left(), rect.bottom())
+		painter.drawPath(path)
+	else:
+		painter.drawLine(rect.left(), rect.top(), rect.right(), rect.top())
+		painter.drawLine(rect.left(), rect.bottom(), rect.right(), rect.bottom())
+
+
+def _delivery_text_color(index):
+	color = index.data(Qt.ForegroundRole)
+	if isinstance(color, QColor):
+		return color
+	if color is not None and hasattr(color, "color"):
+		return color.color()
+	return QColor(GRAY_5)
+
+
+class DeliveryTextDelegate(QStyledItemDelegate):
+	def __init__(self, table):
+		super().__init__(table)
+		self._table = table
+
+	def paint(self, painter, option, index):
+		painter.save()
+
+		hovered = _delivery_row_is_hovered(self._table, option, index)
+		_paint_delivery_row_segment(painter, option, index, hovered)
+
+		font = index.data(Qt.FontRole)
+		if isinstance(font, QFont):
+			painter.setFont(font)
+		else:
+			painter.setFont(inter(11, QFont.DemiBold if index.column() in (0, 3) else QFont.Normal))
+
+		text = str(index.data(Qt.DisplayRole) or "")
+		rect = _delivery_row_rect(option).adjusted(18, 0, -14, 0)
+		if index.column() == 3:
+			flags = Qt.AlignRight | Qt.AlignVCenter
+		else:
+			flags = Qt.AlignLeft | Qt.AlignVCenter
+
+		elided = painter.fontMetrics().elidedText(text, Qt.ElideRight, rect.width())
+		painter.setPen(_delivery_text_color(index))
+		painter.drawText(rect, flags, elided)
+
+		painter.restore()
+
+	def sizeHint(self, option, index):
+		return QSize(120, 78)
+
+
 # --- Status Pill Delegate ---
 class DeliveryStatusDelegate(QStyledItemDelegate):
 	_COLORS = {
@@ -2123,27 +2316,27 @@ class DeliveryStatusDelegate(QStyledItemDelegate):
 		"cancelled":  "Cancelled",
 	}
 
+	def __init__(self, table):
+		super().__init__(table)
+		self._table = table
+
 	def paint(self, painter, option, index):
 		painter.save()
 
-		if option.state & QStyle.State_Selected:
-			painter.fillRect(option.rect, QColor(TEAL_PALE))
-		else:
-			painter.fillRect(option.rect, QColor("#fbfdfc"))
-
-		painter.setPen(QColor("#edf2f0"))
-		painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+		hovered = _delivery_row_is_hovered(self._table, option, index)
+		_paint_delivery_row_segment(painter, option, index, hovered)
 
 		raw = index.data(Qt.DisplayRole) or ""
 		key = raw.lower().replace(" ", "_")
 		bg, fg = self._COLORS.get(key, (GRAY_2, GRAY_5))
 		label = self._LABELS.get(key, raw)
 
-		fm = QFontMetrics(inter(11, QFont.Medium))
-		pill_w = fm.horizontalAdvance(label) + 22
-		pill_h = 26
-		cx = option.rect.center().x()
-		cy = option.rect.center().y()
+		fm = QFontMetrics(inter(10, QFont.Medium))
+		pill_w = fm.horizontalAdvance(label) + 20
+		pill_h = 24
+		row_rect = _delivery_row_rect(option)
+		cx = row_rect.center().x()
+		cy = row_rect.center().y()
 		pill_rect = QRect(
 			cx - pill_w // 2,
 			cy - pill_h // 2,
@@ -2157,14 +2350,14 @@ class DeliveryStatusDelegate(QStyledItemDelegate):
 		painter.setPen(QPen(QColor(fg), 1))
 		painter.drawRoundedRect(pill_rect, 13, 13)
 
-		painter.setFont(inter(11, QFont.Medium))
+		painter.setFont(inter(10, QFont.Medium))
 		painter.setPen(QColor(fg))
 		painter.drawText(pill_rect, Qt.AlignCenter, label)
 
 		painter.restore()
 
 	def sizeHint(self, option, index):
-		return QSize(118, 64)
+		return QSize(132, 78)
 
 # --- Ghost Update Button ---
 class DeliveryActionDelegate(QStyledItemDelegate):
@@ -2174,6 +2367,7 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 		self._viewport = table.viewport()
 		self._page  = page
 		self._hovered_row = -1
+		self._table._delivery_hovered_row = -1
 		table.setMouseTracking(True)
 		self._viewport.installEventFilter(self)
 		table.destroyed.connect(self._on_table_destroyed)
@@ -2196,25 +2390,30 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 				new_row = idx.row() if idx.isValid() else -1
 				if new_row != self._hovered_row:
 					self._hovered_row = new_row
+					self._table._delivery_hovered_row = new_row
 					self._viewport.update()
+			elif event.type() == QEvent.Leave and self._hovered_row != -1:
+				self._hovered_row = -1
+				self._table._delivery_hovered_row = -1
+				self._viewport.update()
 		return super().eventFilter(obj, event)
 
 	def paint(self, painter, option, index):
 		painter.save()
 
-		# row background
-		if option.state & QStyle.State_Selected:
-			painter.fillRect(option.rect, QColor(TEAL_PALE))
-		else:
-			painter.fillRect(option.rect, QColor("#fbfdfc"))
-
-		# bottom border
-		painter.setPen(QColor("#edf2f0"))
-		painter.drawLine(option.rect.bottomLeft(), option.rect.bottomRight())
+		is_hovered = (index.row() == self._hovered_row)
+		_paint_delivery_row_segment(painter, option, index, is_hovered)
 
 		# button rect
-		btn_rect = option.rect.adjusted(12, 17, -12, -17)
-		is_hovered = (index.row() == self._hovered_row)
+		row_rect = _delivery_row_rect(option)
+		btn_w = min(118, max(88, row_rect.width() - 24))
+		btn_h = 34
+		btn_rect = QRect(
+			row_rect.center().x() - btn_w // 2,
+			row_rect.center().y() - btn_h // 2,
+			btn_w,
+			btn_h,
+		)
 
 		painter.setRenderHint(QPainter.Antialiasing)
 
@@ -2225,7 +2424,7 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 
 		painter.setBrush(bg_color)
 		painter.setPen(QPen(border_color, 1))
-		painter.drawRoundedRect(btn_rect, 13, 13)
+		painter.drawRoundedRect(btn_rect, 19, 19)
 
 		# label
 		text_rect = QRect(
@@ -2234,19 +2433,27 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 			btn_rect.width(),
 			btn_rect.height()
 		)
-		painter.setFont(inter(10, QFont.Medium))
+		painter.setFont(inter(9, QFont.Medium))
 		painter.setPen(text_color)
 		painter.drawText(text_rect, Qt.AlignCenter, "Update")
 
 		painter.restore()
 
 	def sizeHint(self, option, index):
-		return QSize(124, 64)
+		return QSize(126, 78)
 
 	def editorEvent(self, event, model, option, index):
 		from PySide6.QtCore import QEvent
 		if event.type() == QEvent.MouseButtonRelease:
-			btn_rect = option.rect.adjusted(12, 17, -12, -17)
+			row_rect = _delivery_row_rect(option)
+			btn_w = min(118, max(88, row_rect.width() - 24))
+			btn_h = 34
+			btn_rect = QRect(
+				row_rect.center().x() - btn_w // 2,
+				row_rect.center().y() - btn_h // 2,
+				btn_w,
+				btn_h,
+			)
 			if btn_rect.contains(event.position().toPoint()):
 				self._page.open_status(index.row())
 				return True
@@ -2551,8 +2758,18 @@ class DeliveryView(QWidget):
 
 		self._model = QStandardItemModel()
 		self._model.setHorizontalHeaderLabels(
-			["Customer", "Schedule Date", "Items", "Total Amount", "Status", "Actions"]
+			["CUSTOMER", "DELIVERY", "PRODUCTS", "AMOUNT", "STATUS", "ACTIONS"]
 		)
+		for idx in range(self._model.columnCount()):
+			header_item = self._model.horizontalHeaderItem(idx)
+			if header_item is None:
+				continue
+			if idx == 3:
+				header_item.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+			elif idx in (4, 5):
+				header_item.setTextAlignment(Qt.AlignCenter | Qt.AlignVCenter)
+			else:
+				header_item.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 
 		self._proxy = DeliveryFilterProxy(self)
 		self._proxy.setSourceModel(self._model)
@@ -2560,32 +2777,65 @@ class DeliveryView(QWidget):
 		self._table = QTableView()
 		self._table.setModel(self._proxy)
 		self._table.setSelectionBehavior(QAbstractItemView.SelectRows)
+		self._table.setSelectionMode(QAbstractItemView.NoSelection)
 		self._table.setEditTriggers(QAbstractItemView.NoEditTriggers)
 		self._table.setFocusPolicy(Qt.NoFocus)
+		self._table.setMouseTracking(True)
 		self._table.setShowGrid(False)
 		self._table.verticalHeader().setVisible(False)
-		self._table.verticalHeader().setDefaultSectionSize(64)
+		self._table.verticalHeader().setDefaultSectionSize(82)
+		self._table.verticalHeader().setMinimumSectionSize(76)
 		self._table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-		self._table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-		self._table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
-		self._table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-		self._table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-		self._table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-		self._table.horizontalHeader().setSectionResizeMode(5, QHeaderView.ResizeToContents)
+		header = self._table.horizontalHeader()
+		header.setFixedHeight(54)
+		header.setHighlightSections(False)
+		header.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+		header.setSectionResizeMode(0, QHeaderView.Fixed)
+		header.setSectionResizeMode(1, QHeaderView.Fixed)
+		header.setSectionResizeMode(2, QHeaderView.Stretch)
+		header.setSectionResizeMode(3, QHeaderView.Fixed)
+		header.setSectionResizeMode(4, QHeaderView.Fixed)
+		header.setSectionResizeMode(5, QHeaderView.Fixed)
+		header.resizeSection(0, 238)
+		header.resizeSection(1, 150)
+		header.resizeSection(3, 138)
+		header.resizeSection(4, 132)
+		header.resizeSection(5, 126)
 
 		self._table.setStyleSheet(
 			f"""
 			QTableView {{
-				background:transparent;border:none;
-				font-family:'{INTER_FAMILY}';font-size:13px;color:{GRAY_5};outline:none;
-				selection-background-color:{TEAL_PALE};
+				background:#f7faf9;
+				border:none;
+				font-family:'{INTER_FAMILY}';
+				font-size:12px;
+				color:{GRAY_5};
+				outline:none;
+				selection-background-color:transparent;
+				selection-color:{GRAY_5};
+				padding:8px 8px 10px 8px;
 			}}
-			QTableView::item {{ padding:12px 14px;border-bottom:1px solid #edf2f0; }}
-			QTableView::item:selected {{ background:{TEAL_PALE};color:{TEAL_DARK}; }}
+			QTableView::item {{
+				background:transparent;
+				padding:0;
+				border:none;
+			}}
+			QTableView::item:hover {{
+				background:transparent;
+			}}
+			QTableView::item:selected {{
+				background:transparent;
+				color:{GRAY_5};
+			}}
 			QHeaderView::section {{
-				background:#f4f8f7;color:{GRAY_5};
-				font-size:11px;font-weight:600;letter-spacing:0.8px;
-				padding:13px 14px 12px;border:none;border-bottom:1px solid {GRAY_2};
+				background:#f4f8f7;
+				color:{GRAY_4};
+				font-size:11px;
+				font-weight:600;
+				letter-spacing:1px;
+				padding:0 16px;
+				border:none;
+				border-bottom:1px solid {GRAY_2};
 				font-family:'{INTER_FAMILY}';
 			}}
 			QScrollBar:vertical {{
@@ -2611,8 +2861,13 @@ class DeliveryView(QWidget):
 			}}
 			"""
 		)
-		self._table.setItemDelegateForColumn(5, DeliveryActionDelegate(self._table, self))
-		self._table.setItemDelegateForColumn(4, DeliveryStatusDelegate(self._table))  # add this
+		self._delivery_text_delegate = DeliveryTextDelegate(self._table)
+		for col in range(4):
+			self._table.setItemDelegateForColumn(col, self._delivery_text_delegate)
+		self._delivery_status_delegate = DeliveryStatusDelegate(self._table)
+		self._delivery_action_delegate = DeliveryActionDelegate(self._table, self)
+		self._table.setItemDelegateForColumn(4, self._delivery_status_delegate)
+		self._table.setItemDelegateForColumn(5, self._delivery_action_delegate)
 		self._table.doubleClicked.connect(lambda index: self.open_details(index.row()))
 
 		self._empty = QWidget()
@@ -2906,8 +3161,8 @@ class DeliveryView(QWidget):
 				)
 			else:
 				items_preview = row.get("item_summary") or "No items recorded"
-			if len(items_preview) > 86:
-				items_preview = items_preview[:83] + "..."
+			if len(items_preview) > 74:
+				items_preview = items_preview[:71] + "..."
 
 			customer_text = row["customer_name"]
 			date_text = row["schedule_date"].toString("MMM d, yyyy")
@@ -2927,20 +3182,25 @@ class DeliveryView(QWidget):
 			cells[1].setData(row["schedule_date"], Qt.UserRole + 2)
 
 			for idx, c in enumerate(cells):
-				c.setFont(inter(12, QFont.DemiBold if idx in (0, 3) else QFont.Normal))
+				c.setFont(inter(11, QFont.DemiBold if idx in (0, 3) else QFont.Normal))
 				c.setBackground(QColor("#fbfdfc"))
 				if idx == 4:
 					c.setForeground(QColor(self._status_fg(row["status"])))
 				elif idx == 0:
 					c.setForeground(QColor(TEAL_DARK))
+					c.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 				elif idx == 3:
 					c.setForeground(QColor(TEAL_DARK))
 					c.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
-				elif idx in (1, 5):
+				elif idx == 5:
 					c.setForeground(QColor(GRAY_5))
 					c.setTextAlignment(Qt.AlignCenter)
+				elif idx == 1:
+					c.setForeground(QColor(GRAY_5))
+					c.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 				else:
 					c.setForeground(QColor(GRAY_5))
+					c.setTextAlignment(Qt.AlignLeft | Qt.AlignVCenter)
 				if idx == 4:
 					c.setTextAlignment(Qt.AlignCenter)
 

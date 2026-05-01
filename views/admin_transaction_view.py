@@ -90,12 +90,14 @@ def load_fonts():
 
 
 def playfair(size, weight=QFont.Normal):
+    size = int(size) if isinstance(size, (int, float)) and int(size) > 0 else 11
     font = QFont(PLAYFAIR_FAMILY, size)
     font.setWeight(weight)
     return font
 
 
 def inter(size, weight=QFont.Normal):
+    size = int(size) if isinstance(size, (int, float)) and int(size) > 0 else 11
     font = QFont(INTER_FAMILY, size)
     font.setWeight(weight)
     return font
@@ -394,6 +396,8 @@ class TransactionRow(QFrame):
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton:
             self.clicked.emit(self._transaction)
+            event.accept()
+            return
         super().mouseReleaseEvent(event)
 
 
@@ -779,7 +783,9 @@ class TransactionView(QWidget):
         self._read_only = read_only
         self._all_transactions = []
         self._filtered_transactions = []
+        self._date_metric_transactions = []
         self._controller = None
+        self._date_filter_enabled = False
         self._is_reloading = False
 
         load_fonts()
@@ -878,6 +884,14 @@ class TransactionView(QWidget):
             """
         )
 
+        self._date_mode = QComboBox()
+        self._date_mode.addItems(["All dates", "Date range"])
+        self._date_mode.setFont(inter(11))
+        self._date_mode.setFixedHeight(34)
+        self._date_mode.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._date_mode.currentIndexChanged.connect(self._on_date_mode_changed)
+        self._date_mode.setStyleSheet(self._status_filter.styleSheet())
+
         self._date_from = QDateEdit()
         self._date_from.setCalendarPopup(True)
         self._date_from.setDisplayFormat("MMM d, yyyy")
@@ -930,11 +944,14 @@ class TransactionView(QWidget):
         fb_lay.addWidget(filter_lbl)
         fb_lay.addWidget(self._status_filter)
         fb_lay.addSpacing(4)
+        fb_lay.addWidget(self._date_mode)
+        fb_lay.addSpacing(4)
         fb_lay.addWidget(from_lbl)
         fb_lay.addWidget(self._date_from)
         fb_lay.addWidget(to_lbl)
         fb_lay.addWidget(self._date_to)
 
+        self._sync_date_filter_controls()
         content_lay.addWidget(filter_bar)
         content_lay.addSpacing(4)
 
@@ -1168,20 +1185,26 @@ class TransactionView(QWidget):
             self._date_to.blockSignals(True)
             self._date_to.setDate(new_date)
             self._date_to.blockSignals(False)
-        if self._controller:
-            self.reload_data()
-        else:
-            self._apply_filter()
+        self._apply_filter()
 
     def _on_date_to_changed(self, new_date):
         if new_date < self._date_from.date():
             self._date_from.blockSignals(True)
             self._date_from.setDate(new_date)
             self._date_from.blockSignals(False)
-        if self._controller:
-            self.reload_data()
-        else:
-            self._apply_filter()
+        self._apply_filter()
+
+    def _on_date_mode_changed(self, *_):
+        self._date_filter_enabled = self._date_mode.currentText().lower() != "all dates"
+        self._sync_date_filter_controls()
+        self._apply_filter()
+
+    def _sync_date_filter_controls(self):
+        enabled = bool(getattr(self, "_date_filter_enabled", False))
+        if hasattr(self, "_date_from"):
+            self._date_from.setEnabled(enabled)
+        if hasattr(self, "_date_to"):
+            self._date_to.setEnabled(enabled)
 
     def _build_topbar(self):
         bar = QWidget()
@@ -1272,6 +1295,8 @@ class TransactionView(QWidget):
                 return qdate.toPython()
             return qdate.toPyDate()
 
+        if not getattr(self, "_date_filter_enabled", False):
+            return None, None
         return to_pydate(self._date_from.date()), to_pydate(self._date_to.date())
 
     def reset_view_state(self):
@@ -1279,17 +1304,22 @@ class TransactionView(QWidget):
         first_of_month = QDate(today.year(), today.month(), 1)
 
         self._status_filter.blockSignals(True)
+        self._date_mode.blockSignals(True)
         self._date_from.blockSignals(True)
         self._date_to.blockSignals(True)
 
         self._status_filter.setCurrentIndex(0)
+        self._date_mode.setCurrentIndex(0)
+        self._date_filter_enabled = False
         self._date_from.setDate(first_of_month)
         self._date_to.setDate(today)
 
         self._status_filter.blockSignals(False)
+        self._date_mode.blockSignals(False)
         self._date_from.blockSignals(False)
         self._date_to.blockSignals(False)
 
+        self._sync_date_filter_controls()
         self.reload_data()
 
     def reload_data(self):
@@ -1297,8 +1327,7 @@ class TransactionView(QWidget):
             return
         self._is_reloading = True
         try:
-            date_from, date_to = self.current_date_range()
-            self._controller.load(date_from, date_to)
+            self._controller.load()
         finally:
             self._is_reloading = False
 
@@ -1311,27 +1340,41 @@ class TransactionView(QWidget):
 
     def _apply_filter(self, *_):
         status_filter = self._status_filter.currentText().lower()
-        date_from = self._date_from.date()
-        date_to = self._date_to.date()
 
-        def matches(transaction):
+        self._date_metric_transactions = [
+            transaction
+            for transaction in self._all_transactions
+            if self._matches_date_filter(transaction)
+        ]
+
+        def matches_status(transaction):
             payment_status = str(transaction.get("payment_status", "")).lower()
-            if status_filter != "all statuses" and status_filter != payment_status:
-                return False
+            return status_filter == "all statuses" or status_filter == payment_status
 
-            delivery_date = self._coerce_date(transaction.get("delivery_date"))
-            if delivery_date is None:
-                return False
-            return date_from <= delivery_date <= date_to
-
-        self._filtered_transactions = [transaction for transaction in self._all_transactions if matches(transaction)]
+        self._filtered_transactions = [
+            transaction for transaction in self._date_metric_transactions if matches_status(transaction)
+        ]
         self._render_table()
+
+    def _matches_date_filter(self, transaction):
+        if not getattr(self, "_date_filter_enabled", False):
+            return True
+
+        delivery_date = self._coerce_date(transaction.get("delivery_date"))
+        if delivery_date is None:
+            return False
+        return self._date_from.date() <= delivery_date <= self._date_to.date()
 
     def _render_table(self):
         paid_total = 0.0
         unpaid_total = 0.0
 
-        for transaction in self._all_transactions:
+        metric_transactions = (
+            self._date_metric_transactions
+            if getattr(self, "_date_filter_enabled", False)
+            else list(self._all_transactions)
+        )
+        for transaction in metric_transactions:
             amount = self._safe_float(transaction.get("total_amount"))
             if str(transaction.get("payment_status", "")).lower() == "paid":
                 paid_total += amount

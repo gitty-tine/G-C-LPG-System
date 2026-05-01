@@ -221,14 +221,20 @@ class OwnerProductModel:
                 cursor.execute("""
                     SELECT id FROM lpg_products
                     WHERE is_active = 1
-                      AND normalized_name = TRIM(
+                      AND TRIM(
+                          REGEXP_REPLACE(
+                              REGEXP_REPLACE(LOWER(TRIM(COALESCE(name, ''))), '[^a-z0-9 ]', ''),
+                              '\\s+',
+                              ' '
+                          )
+                      ) = TRIM(
                           REGEXP_REPLACE(
                               REGEXP_REPLACE(LOWER(TRIM(%s)), '[^a-z0-9 ]', ''),
                               '\\s+',
                               ' '
                           )
                       )
-                      AND normalized_cylinder_size = LOWER(TRIM(%s))
+                      AND LOWER(TRIM(COALESCE(cylinder_size, ''))) = LOWER(TRIM(%s))
                       AND id != %s
                     LIMIT 1
                 """, (name, cylinder_size, exclude_id))
@@ -236,14 +242,20 @@ class OwnerProductModel:
                 cursor.execute("""
                     SELECT id FROM lpg_products
                     WHERE is_active = 1
-                      AND normalized_name = TRIM(
+                      AND TRIM(
+                          REGEXP_REPLACE(
+                              REGEXP_REPLACE(LOWER(TRIM(COALESCE(name, ''))), '[^a-z0-9 ]', ''),
+                              '\\s+',
+                              ' '
+                          )
+                      ) = TRIM(
                           REGEXP_REPLACE(
                               REGEXP_REPLACE(LOWER(TRIM(%s)), '[^a-z0-9 ]', ''),
                               '\\s+',
                               ' '
                           )
                       )
-                      AND normalized_cylinder_size = LOWER(TRIM(%s))
+                      AND LOWER(TRIM(COALESCE(cylinder_size, ''))) = LOWER(TRIM(%s))
                     LIMIT 1
                 """, (name, cylinder_size))
             return cursor.fetchone() is not None
