@@ -1,7 +1,7 @@
 import os
 
 from PySide6.QtCore import QPoint, QSize, Qt, QTimer
-from PySide6.QtGui import QFont, QIcon
+from PySide6.QtGui import QFont, QIcon, QTextOption
 from PySide6.QtWidgets import (
     QApplication,
     QFrame,
@@ -44,6 +44,40 @@ def _shorten(text, limit=68):
     if len(text) <= limit:
         return text
     return f"{text[:max(0, limit - 3)]}..."
+
+
+class ElidedLabel(QLabel):
+    def __init__(self, text="", parent=None):
+        super().__init__(parent)
+        self._full_text = ""
+        self.setMinimumWidth(0)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.setText(text)
+
+    def setText(self, text):
+        self._full_text = str(text or "")
+        self.setToolTip(self._full_text if self._full_text else "")
+        self._refresh_elision()
+
+    def setFont(self, font):
+        super().setFont(font)
+        self._refresh_elision()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._refresh_elision()
+
+    def _refresh_elision(self):
+        width = max(0, self.contentsRect().width())
+        if width <= 0:
+            QLabel.setText(self, self._full_text)
+            return
+        display_text = self.fontMetrics().elidedText(
+            self._full_text,
+            Qt.ElideRight,
+            width,
+        )
+        QLabel.setText(self, display_text)
 
 
 class MessageIconButton(QPushButton):
@@ -102,6 +136,8 @@ class MessageIconButton(QPushButton):
 
 
 class ConversationRow(QFrame):
+    ROW_HEIGHT = 82
+
     def __init__(self, conversation, active=False, on_clicked=None, parent=None):
         super().__init__(parent)
         self._conversation = conversation or {}
@@ -109,6 +145,8 @@ class ConversationRow(QFrame):
         unread = int(self._conversation.get("unread_count") or 0)
         self.setCursor(Qt.PointingHandCursor)
         self.setObjectName("conversationRow")
+        self.setFixedHeight(self.ROW_HEIGHT)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         bg = TEAL_PALE if active else WHITE
         border = TEAL_PALE2 if active or unread else GRAY_2
         self.setStyleSheet(f"""
@@ -124,7 +162,7 @@ class ConversationRow(QFrame):
         """)
 
         root = QHBoxLayout(self)
-        root.setContentsMargins(10, 9, 10, 9)
+        root.setContentsMargins(10, 8, 10, 8)
         root.setSpacing(9)
 
         avatar = QLabel(self._initials())
@@ -141,48 +179,56 @@ class ConversationRow(QFrame):
         text_col.setContentsMargins(0, 0, 0, 0)
         text_col.setSpacing(2)
 
-        name = QLabel(str(self._conversation.get("display_name") or "Staff"))
+        name = ElidedLabel(self._conversation.get("display_name") or "Staff")
         name.setFont(ui_font(10, QFont.DemiBold if unread else QFont.Medium))
+        name.setFixedHeight(18)
         name.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
         role = QLabel(str(self._conversation.get("role_label") or "Staff"))
         role.setFont(ui_font(8))
+        role.setFixedHeight(15)
         role.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
         latest = self._latest_text()
-        preview = QLabel(latest)
+        preview = ElidedLabel(latest)
         preview.setFont(ui_font(9, QFont.Medium if unread else QFont.Normal))
+        preview.setFixedHeight(18)
         preview.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
 
         text_col.addWidget(name)
         text_col.addWidget(role)
         text_col.addWidget(preview)
+        text_col.addStretch()
         root.addLayout(text_col, 1)
 
-        side_col = QVBoxLayout()
-        side_col.setContentsMargins(0, 0, 0, 0)
-        side_col.setSpacing(5)
-        side_col.setAlignment(Qt.AlignRight | Qt.AlignTop)
+        latest_at = str(self._conversation.get("latest_at_fmt") or "")
+        if latest_at or unread:
+            side_col = QVBoxLayout()
+            side_col.setContentsMargins(0, 0, 0, 0)
+            side_col.setSpacing(5)
+            side_col.setAlignment(Qt.AlignRight | Qt.AlignTop)
 
-        time_lbl = QLabel(str(self._conversation.get("latest_at_fmt") or ""))
-        time_lbl.setFont(ui_font(7))
-        time_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-        time_lbl.setAlignment(Qt.AlignRight)
-        side_col.addWidget(time_lbl)
+            if latest_at:
+                time_lbl = QLabel(_shorten(latest_at, 12))
+                time_lbl.setFont(ui_font(7))
+                time_lbl.setFixedHeight(15)
+                time_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+                time_lbl.setAlignment(Qt.AlignRight)
+                side_col.addWidget(time_lbl)
 
-        if unread:
-            badge = QLabel("9+" if unread > 9 else str(unread))
-            badge.setAlignment(Qt.AlignCenter)
-            badge.setFont(ui_font(7, QFont.DemiBold))
-            badge.setFixedSize(20, 18)
-            badge.setStyleSheet(f"""
-                color:{WHITE};background:{RED};
-                border:none;border-radius:9px;
-            """)
-            side_col.addWidget(badge, 0, Qt.AlignRight)
-        else:
-            side_col.addStretch()
-        root.addLayout(side_col)
+            if unread:
+                badge = QLabel("9+" if unread > 9 else str(unread))
+                badge.setAlignment(Qt.AlignCenter)
+                badge.setFont(ui_font(7, QFont.DemiBold))
+                badge.setFixedSize(20, 18)
+                badge.setStyleSheet(f"""
+                    color:{WHITE};background:{RED};
+                    border:none;border-radius:9px;
+                """)
+                side_col.addWidget(badge, 0, Qt.AlignRight)
+            else:
+                side_col.addStretch()
+            root.addLayout(side_col, 0)
 
     def _initials(self):
         name = str(self._conversation.get("display_name") or "S").strip()
@@ -195,7 +241,8 @@ class ConversationRow(QFrame):
         if not body:
             return "No messages yet"
         prefix = "You: " if self._conversation.get("latest_from_me") else ""
-        return _shorten(f"{prefix}{body}", 48)
+        full = " ".join(f"{prefix}{body}".split())
+        return full[:60] + "..." if len(full) > 60 else full
 
     def mousePressEvent(self, event):
         if self._on_clicked is not None:
@@ -253,19 +300,65 @@ class MessageBubble(QWidget):
             root.addStretch()
 
 
+class AutoResizeMessageInput(QTextEdit):
+    MIN_HEIGHT = 46
+    MAX_HEIGHT = 116
+    HEIGHT_PADDING = 24
+
+    def __init__(self, on_height_changed=None, parent=None):
+        super().__init__(parent)
+        self._on_height_changed = on_height_changed
+        self.setAcceptRichText(False)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setLineWrapMode(QTextEdit.WidgetWidth)
+        self.setWordWrapMode(QTextOption.WrapAtWordBoundaryOrAnywhere)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.document().setDocumentMargin(0)
+        self.setFixedHeight(self.MIN_HEIGHT)
+        self.textChanged.connect(self.adjust_to_document)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        QTimer.singleShot(0, self.adjust_to_document)
+
+    def adjust_to_document(self):
+        self.document().setTextWidth(max(1, self.viewport().width()))
+        natural_height = int(self.document().size().height()) + self.HEIGHT_PADDING
+        target_height = max(self.MIN_HEIGHT, min(self.MAX_HEIGHT, natural_height))
+        scroll_policy = (
+            Qt.ScrollBarAsNeeded
+            if natural_height > self.MAX_HEIGHT
+            else Qt.ScrollBarAlwaysOff
+        )
+        if self.verticalScrollBarPolicy() != scroll_policy:
+            self.setVerticalScrollBarPolicy(scroll_policy)
+        if self.height() != target_height:
+            self.setFixedHeight(target_height)
+            if self._on_height_changed is not None:
+                self._on_height_changed(target_height)
+
+
 class MessagingPanel(QFrame):
     def __init__(self, controller, on_unread_changed=None, parent=None):
         super().__init__(parent)
         self._controller = controller
         self._on_unread_changed = on_unread_changed
+        self._anchor = None
         self._conversations = []
         self._active_conversation = None
         self._active_user_id = None
+        self._last_message_widget = None
+        self._reposition_timer = QTimer(self)
+        self._reposition_timer.setSingleShot(True)
+        self._reposition_timer.timeout.connect(self._reposition_after_show)
 
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("messagePanel")
-        self.setFixedSize(720, 520)
+        self.setMinimumSize(640, 460)
+        self.resize(900, 620)
         self.setStyleSheet(f"""
             QFrame#messagePanel {{
                 background:{WHITE};
@@ -330,7 +423,8 @@ class MessagingPanel(QFrame):
         lay.setSpacing(0)
 
         conv_pane = QFrame()
-        conv_pane.setFixedWidth(260)
+        self._conversation_pane = conv_pane
+        conv_pane.setFixedWidth(340)
         conv_pane.setStyleSheet(f"background:{WHITE};border:none;border-right:1px solid {GRAY_2};")
         conv_lay = QVBoxLayout(conv_pane)
         conv_lay.setContentsMargins(10, 10, 10, 10)
@@ -378,34 +472,24 @@ class MessagingPanel(QFrame):
         self._message_list = QWidget()
         self._message_list.setStyleSheet(f"background:{WHITE};border:none;")
         self._message_lay = QVBoxLayout(self._message_list)
-        self._message_lay.setContentsMargins(16, 14, 16, 14)
+        self._message_lay.setContentsMargins(16, 14, 16, 28)
         self._message_lay.setSpacing(10)
         self._message_scroll.setWidget(self._message_list)
         chat_lay.addWidget(self._message_scroll, 1)
 
         composer = QWidget()
-        composer.setFixedHeight(92)
+        self._composer = composer
+        composer.setFixedHeight(70)
         composer.setStyleSheet(f"background:#fbfdfc;border:none;border-top:1px solid {GRAY_2};")
         comp_lay = QHBoxLayout(composer)
         comp_lay.setContentsMargins(14, 12, 14, 12)
         comp_lay.setSpacing(10)
 
-        self._message_input = QTextEdit()
-        self._message_input.setAcceptRichText(False)
+        self._message_input = AutoResizeMessageInput(on_height_changed=self._sync_composer_height)
         self._message_input.setPlaceholderText("Type a message")
-        self._message_input.setFixedHeight(58)
         self._message_input.setFont(ui_font(10))
-        self._message_input.setStyleSheet(f"""
-            QTextEdit {{
-                color:{GRAY_5};background:{WHITE};
-                border:1px solid {GRAY_2};border-radius:7px;
-                padding:8px;
-            }}
-            QTextEdit:focus {{
-                border-color:{TEAL_LIGHT};
-            }}
-        """)
-        comp_lay.addWidget(self._message_input, 1)
+        self._message_input.setStyleSheet(self._input_qss())
+        comp_lay.addWidget(self._message_input, 1, Qt.AlignBottom)
 
         self._send_btn = QPushButton("Send")
         self._send_btn.setCursor(Qt.PointingHandCursor)
@@ -430,7 +514,32 @@ class MessagingPanel(QFrame):
 
         self._set_composer_enabled(False)
         self._render_empty_thread("Select a conversation to start messaging.")
+        QTimer.singleShot(0, self._message_input.adjust_to_document)
         return body
+
+    def _fit_to_screen(self, screen, margin=12):
+        if screen is None:
+            self.resize(900, 620)
+            return
+
+        available = screen.availableGeometry()
+        max_width = max(640, available.width() - (margin * 2))
+        max_height = max(460, available.height() - (margin * 2))
+        width = min(920, max_width)
+        height = min(640, max_height)
+        width = max(760, width)
+        height = max(520, height)
+        width = min(width, max_width)
+        height = min(height, max_height)
+        self.resize(width, height)
+
+        if width >= 860:
+            pane_width = 360
+        elif width >= 760:
+            pane_width = 330
+        else:
+            pane_width = 290
+        self._conversation_pane.setFixedWidth(pane_width)
 
     def _small_button_qss(self):
         return f"""
@@ -444,6 +553,43 @@ class MessagingPanel(QFrame):
             }}
         """
 
+    def _input_qss(self):
+        return f"""
+            QTextEdit {{
+                color:{GRAY_5};background:{WHITE};
+                border:1px solid {GRAY_2};border-radius:7px;
+                padding:10px 12px;
+                selection-background-color:{TEAL_PALE2};
+            }}
+            QTextEdit:focus {{
+                border-color:{TEAL_LIGHT};
+            }}
+            QTextEdit QScrollBar:vertical {{
+                background: transparent;
+                width: 6px;
+                margin: 8px 2px 8px 0;
+                border: none;
+            }}
+            QTextEdit QScrollBar::handle:vertical {{
+                background: rgba(20, 95, 85, 80);
+                min-height: 24px;
+                border-radius: 3px;
+            }}
+            QTextEdit QScrollBar::handle:vertical:hover {{
+                background: rgba(20, 95, 85, 140);
+            }}
+            QTextEdit QScrollBar::add-line:vertical,
+            QTextEdit QScrollBar::sub-line:vertical {{
+                height: 0px;
+                border: none;
+                background: transparent;
+            }}
+            QTextEdit QScrollBar::add-page:vertical,
+            QTextEdit QScrollBar::sub-page:vertical {{
+                background: transparent;
+            }}
+        """
+
     def _scroll_qss(self):
         return f"""
             QScrollArea {{
@@ -452,17 +598,17 @@ class MessagingPanel(QFrame):
             }}
             QScrollBar:vertical {{
                 background: transparent;
-                width: 8px;
-                margin: 4px 2px 4px 0;
+                width: 0px;
+                margin: 0px;
                 border: none;
             }}
             QScrollBar::handle:vertical {{
-                background: {TEAL};
+                background: transparent;
                 min-height: 28px;
-                border-radius: 4px;
+                border-radius: 0px;
             }}
             QScrollBar::handle:vertical:hover {{
-                background: {TEAL_LIGHT};
+                background: transparent;
             }}
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
                 height: 0px;
@@ -472,7 +618,19 @@ class MessagingPanel(QFrame):
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
                 background: transparent;
             }}
+            QScrollBar:horizontal {{
+                background: transparent;
+                height: 0px;
+                margin: 0px;
+                border: none;
+            }}
         """
+
+    def _sync_composer_height(self, input_height=None):
+        if not hasattr(self, "_composer"):
+            return
+        height = int(input_height or self._message_input.height())
+        self._composer.setFixedHeight(height + 24)
 
     def _clear_layout(self, layout):
         while layout.count():
@@ -572,15 +730,22 @@ class MessagingPanel(QFrame):
 
     def _render_thread(self, messages):
         self._clear_layout(self._message_lay)
+        self._last_message_widget = None
         if not messages:
             self._render_empty_thread("No messages yet.")
             return
         for message in messages:
-            self._message_lay.addWidget(MessageBubble(message))
+            bubble = MessageBubble(message)
+            self._message_lay.addWidget(bubble)
+            self._last_message_widget = bubble
         self._message_lay.addStretch()
-        QTimer.singleShot(0, self._scroll_messages_to_bottom)
+        for delay in (0, 60, 160):
+            QTimer.singleShot(delay, self._scroll_messages_to_bottom)
 
     def _scroll_messages_to_bottom(self):
+        self._message_list.adjustSize()
+        if self._last_message_widget is not None:
+            self._message_scroll.ensureWidgetVisible(self._last_message_widget, 0, 18)
         bar = self._message_scroll.verticalScrollBar()
         bar.setValue(bar.maximum())
 
@@ -627,7 +792,6 @@ class MessagingPanel(QFrame):
         self._message_input.setFocus()
 
     def _position_for_anchor(self, anchor, gap=8, margin=8):
-        self.adjustSize()
         anchor_top_left = anchor.mapToGlobal(QPoint(0, 0))
         anchor_bottom_right = anchor.mapToGlobal(QPoint(anchor.width(), anchor.height()))
         screen = QApplication.screenAt(anchor_bottom_right)
@@ -635,6 +799,7 @@ class MessagingPanel(QFrame):
             screen = anchor.window().screen()
         if screen is None:
             screen = QApplication.primaryScreen()
+        self._fit_to_screen(screen)
         if screen is None:
             return QPoint(anchor_bottom_right.x() - self.width(), anchor_bottom_right.y() + gap)
 
@@ -655,10 +820,22 @@ class MessagingPanel(QFrame):
         y = min_y if max_y < min_y else min(max(y, min_y), max_y)
         return QPoint(x, y)
 
+    def _reposition_after_show(self):
+        anchor = self._anchor
+        if anchor is None or not self.isVisible():
+            return
+        try:
+            if not anchor.isVisible():
+                return
+            self.move(self._position_for_anchor(anchor))
+        except RuntimeError:
+            return
+
     def show_for(self, anchor):
+        self._anchor = anchor
         self.refresh_conversations()
-        self.move(self._position_for_anchor(anchor))
         self.show()
         self.raise_()
+        self._reposition_timer.start(50)
         if self._active_user_id:
             self._message_input.setFocus()
