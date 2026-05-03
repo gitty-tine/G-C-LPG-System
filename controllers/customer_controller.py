@@ -19,18 +19,37 @@ class CustomerController:
         return 0
 
     @staticmethod
-    def list_customers():
+    def _friendly_customer_error(exc, action=None):
+        message = str(exc or "").strip()
+        lowered = message.lower()
+
+        if "data too long for condition item" in lowered and "message_text" in lowered:
+            if action == "delete":
+                return "Customer has delivery history. Archive instead."
+            return "The database rejected this action. Please try again."
+
+        if action == "delete" and (
+            "delivery history" in lowered
+            or "delivery records" in lowered
+            or "permanently deleted" in lowered
+        ):
+            return "Customer has delivery history. Archive instead."
+
+        return message
+
+    @staticmethod
+    def list_customers(archived=False):
         try:
-            return True, CustomerModel.get_all()
+            return True, CustomerModel.get_all(archived=archived)
         except Exception as e:
             return False, str(e)
 
     @staticmethod
-    def search_customers(keyword):
+    def search_customers(keyword, archived=False):
         try:
             if not keyword:
-                return True, CustomerModel.get_all()
-            return True, CustomerModel.search(keyword)
+                return True, CustomerModel.get_all(archived=archived)
+            return True, CustomerModel.search(keyword, archived=archived)
         except Exception as e:
             return False, str(e)
 
@@ -68,13 +87,31 @@ class CustomerController:
             CustomerModel.delete(customer_id, user_id=user_id)
             return True, "Customer deleted."
         except Exception as e:
+            return False, CustomerController._friendly_customer_error(e, action="delete")
+
+    @staticmethod
+    def archive_customer(customer_id):
+        try:
+            user_id = CustomerController._current_user_id()
+            CustomerModel.archive(customer_id, user_id=user_id)
+            return True, "Customer archived."
+        except Exception as e:
             return False, str(e)
 
-def list_customers():
-    return CustomerController.list_customers()
+    @staticmethod
+    def restore_customer(customer_id):
+        try:
+            user_id = CustomerController._current_user_id()
+            CustomerModel.restore(customer_id, user_id=user_id)
+            return True, "Customer restored."
+        except Exception as e:
+            return False, str(e)
 
-def search_customers(keyword):
-    return CustomerController.search_customers(keyword)
+def list_customers(archived=False):
+    return CustomerController.list_customers(archived=archived)
+
+def search_customers(keyword, archived=False):
+    return CustomerController.search_customers(keyword, archived=archived)
 
 def get_active_customers():
     return CustomerController.get_active_customers()
@@ -87,3 +124,9 @@ def update_customer(customer_id, full_name, address, contact_number, notes=""):
 
 def delete_customer(customer_id):
     return CustomerController.delete_customer(customer_id)
+
+def archive_customer(customer_id):
+    return CustomerController.archive_customer(customer_id)
+
+def restore_customer(customer_id):
+    return CustomerController.restore_customer(customer_id)

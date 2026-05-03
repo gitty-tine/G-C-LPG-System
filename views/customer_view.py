@@ -50,7 +50,7 @@ CUSTOMER_DELIVERIES_W = 72
 CUSTOMER_LAST_W = 105
 CUSTOMER_NOTES_W = 120
 CUSTOMER_CREATED_W = 105
-CUSTOMER_ACTIONS_W = 128
+CUSTOMER_ACTIONS_W = 198
 
 PLAYFAIR_FAMILY = "Playfair Display"
 INTER_FAMILY    = "Inter"
@@ -512,15 +512,15 @@ class DeleteConfirmModal(QWidget):
         c_lay.setContentsMargins(24, 24, 24, 20)
         c_lay.setSpacing(14)
 
-        icon_lbl = QLabel("!")
-        icon_lbl.setFixedSize(40, 40)
-        icon_lbl.setAlignment(Qt.AlignCenter)
-        icon_lbl.setFont(inter(18, QFont.DemiBold))
-        icon_lbl.setStyleSheet(f"background:{RED_BG};color:{RED_BTN};border-radius:20px;border:none;")
+        self._icon_lbl = QLabel("!")
+        self._icon_lbl.setFixedSize(40, 40)
+        self._icon_lbl.setAlignment(Qt.AlignCenter)
+        self._icon_lbl.setFont(inter(18, QFont.DemiBold))
+        self._icon_lbl.setStyleSheet(f"background:{RED_BG};color:{RED_BTN};border-radius:20px;border:none;")
 
-        title = QLabel("Delete Customer")
-        title.setFont(playfair(16, QFont.DemiBold))
-        title.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
+        self._title = QLabel("Delete Customer")
+        self._title.setFont(playfair(16, QFont.DemiBold))
+        self._title.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
 
         self._msg = QLabel("Are you sure you want to delete this customer? This action cannot be undone.")
         self._msg.setFont(inter(12))
@@ -528,8 +528,8 @@ class DeleteConfirmModal(QWidget):
         self._msg.setMinimumHeight(44)
         self._msg.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
-        c_lay.addWidget(icon_lbl)
-        c_lay.addWidget(title)
+        c_lay.addWidget(self._icon_lbl)
+        c_lay.addWidget(self._title)
         c_lay.addWidget(self._msg)
         c_lay.addWidget(HDivider(GRAY_2))
 
@@ -561,10 +561,32 @@ class DeleteConfirmModal(QWidget):
         btn_row.addWidget(self._del_btn)
         c_lay.addLayout(btn_row)
 
-    def open(self, customer_name, customer_id, callback):
+    def open(self, customer_name, customer_id, callback, action="delete"):
         self._callback    = callback
         self._customer_id = customer_id
-        self._msg.setText(f'Are you sure you want to delete "{customer_name}"? This action cannot be undone.')
+        self._action = action
+        if action == "archive":
+            self._title.setText("Archive Customer")
+            self._icon_lbl.setStyleSheet(f"background:{AMBER_BG};color:{AMBER};border-radius:20px;border:none;")
+            self._del_btn.setText("Archive")
+            self._del_btn.setStyleSheet(f"""
+                QPushButton{{color:{AMBER};background:{AMBER_BG};border:1px solid {AMBER_LINE};border-radius:4px;padding:0 18px;}}
+                QPushButton:hover{{color:{WHITE};background:{AMBER};border-color:{AMBER};}}
+            """)
+            self._msg.setText(
+                f'Archive "{customer_name}"? Delivery and transaction history will stay intact, but this customer will be hidden from new deliveries.'
+            )
+        else:
+            self._title.setText("Delete Customer")
+            self._icon_lbl.setStyleSheet(f"background:{RED_BG};color:{RED_BTN};border-radius:20px;border:none;")
+            self._del_btn.setText("Delete")
+            self._del_btn.setStyleSheet(f"""
+                QPushButton{{color:{WHITE};background:{RED_BTN};border:1px solid {RED_BTN};border-radius:4px;padding:0 18px;}}
+                QPushButton:hover{{background:#a93226;border-color:#a93226;}}
+            """)
+            self._msg.setText(
+                f'Delete "{customer_name}" permanently? Only customers without delivery history can be deleted.'
+            )
         if self.parent():
             self.setGeometry(self.parent().rect())
         self._card.adjustSize()
@@ -626,6 +648,8 @@ class DeleteConfirmModal(QWidget):
         self._callback = None
         self._drag_active = False
         self._drag_offset = QPoint()
+        self._action = "delete"
+        self._title.setText("Delete Customer")
         self._msg.setText("Are you sure you want to delete this customer? This action cannot be undone.")
         self.hide()
 
@@ -797,6 +821,7 @@ class CustomerView(QWidget):
         self._topbar_controls_only = topbar_controls_only
         self._visible_customers = []
         self._pending_search_text = ""
+        self._show_archived = False
         self._search_timer = QTimer(self)
         self._search_timer.setSingleShot(True)
         self._search_timer.setInterval(250)
@@ -840,17 +865,17 @@ class CustomerView(QWidget):
         sub.setFont(inter(10, QFont.DemiBold))
         sub.setStyleSheet(f"color:{TEAL};letter-spacing:2px;background:transparent;border:none;margin-bottom:2px;")
 
-        title = QLabel("Customers")
-        title.setFont(playfair(28, QFont.Medium))
-        title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
+        self._title_lbl = QLabel("Customers")
+        self._title_lbl.setFont(playfair(28, QFont.Medium))
+        self._title_lbl.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
-        page_sub = QLabel("Manage all customer records for G and C LPG Trading.")
-        page_sub.setFont(inter(12))
-        page_sub.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;margin-top:0px;")
+        self._page_sub_lbl = QLabel("Manage active customer records for G and C LPG Trading.")
+        self._page_sub_lbl.setFont(inter(12))
+        self._page_sub_lbl.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;margin-top:0px;")
 
         left.addWidget(sub)
-        left.addWidget(title)
-        left.addWidget(page_sub)
+        left.addWidget(self._title_lbl)
+        left.addWidget(self._page_sub_lbl)
 
         self._search = QLineEdit()
         self._search.setPlaceholderText("Search by name, contact, address, or notes...")
@@ -882,7 +907,7 @@ class CustomerView(QWidget):
         summary_row = QHBoxLayout()
         summary_row.setContentsMargins(0, 4, 0, 0)
         summary_row.setSpacing(12)
-        total_card, self._summary_total_lbl = self._summary_card(
+        self._summary_total_card, self._summary_total_lbl = self._summary_card(
             "VISIBLE CUSTOMERS",
             "0",
             "Matching current view",
@@ -900,7 +925,7 @@ class CustomerView(QWidget):
             "Total linked deliveries",
             GRAY_5,
         )
-        summary_row.addWidget(total_card, 1)
+        summary_row.addWidget(self._summary_total_card, 1)
         summary_row.addWidget(active_card, 1)
         summary_row.addWidget(deliveries_card, 1)
         c_lay.addLayout(summary_row)
@@ -922,10 +947,28 @@ class CustomerView(QWidget):
         """)
         self._add_btn.clicked.connect(self._open_add)
 
+        self._archive_toggle_btn = QPushButton("View Archived")
+        self._archive_toggle_btn.setCursor(Qt.PointingHandCursor)
+        self._archive_toggle_btn.setFont(inter(12, QFont.Medium))
+        self._archive_toggle_btn.setFixedHeight(38)
+        self._archive_toggle_btn.setMinimumWidth(160)
+        self._archive_toggle_btn.setStyleSheet(f"""
+            QPushButton{{
+                color:{TEAL_DARK};
+                background:{WHITE};
+                border:1px solid {GRAY_2};
+                border-radius:7px;
+                padding:0 16px;
+            }}
+            QPushButton:hover{{background:{TEAL_PALE};border-color:{TEAL};}}
+        """)
+        self._archive_toggle_btn.clicked.connect(self._toggle_archived_customers)
+
         action_row = QHBoxLayout()
         action_row.setContentsMargins(0, 0, 0, 2)
         action_row.setSpacing(12)
         action_row.addWidget(self._search, 1, Qt.AlignVCenter)
+        action_row.addWidget(self._archive_toggle_btn, 0, Qt.AlignRight | Qt.AlignVCenter)
         action_row.addWidget(self._add_btn, 0, Qt.AlignRight | Qt.AlignVCenter)
         c_lay.addLayout(action_row)
 
@@ -1053,6 +1096,7 @@ class CustomerView(QWidget):
         self._delete_modal = DeleteConfirmModal(self)
         self._status_modal = StatusModal(self)
 
+        self._sync_archive_controls()
         self._refresh_empty_state()
 
     def _summary_card(self, title, value, caption, color):
@@ -1094,6 +1138,8 @@ class CustomerView(QWidget):
         lay.addWidget(value_lbl)
         lay.addWidget(caption_lbl)
         lay.addStretch()
+        card._title_label = title_lbl
+        card._caption_label = caption_lbl
         return card, value_lbl
 
     def _configure_customer_columns(self, layout):
@@ -1210,7 +1256,7 @@ class CustomerView(QWidget):
         edit_btn = QPushButton("Edit")
         edit_btn.setCursor(Qt.PointingHandCursor)
         edit_btn.setFont(inter(10, QFont.Medium))
-        edit_btn.setFixedSize(52, 30)
+        edit_btn.setFixedSize(46, 30)
         edit_btn.setStyleSheet(
             f"""
             QPushButton {{
@@ -1228,10 +1274,52 @@ class CustomerView(QWidget):
         )
         edit_btn.clicked.connect(lambda _checked=False, item=customer: self._open_edit(item))
 
+        archive_btn = QPushButton("Archive")
+        archive_btn.setCursor(Qt.PointingHandCursor)
+        archive_btn.setFont(inter(10, QFont.Medium))
+        archive_btn.setFixedSize(66, 30)
+        archive_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                color:{AMBER};
+                background:{AMBER_BG};
+                border:1px solid {AMBER_LINE};
+                border-radius:15px;
+            }}
+            QPushButton:hover {{
+                color:{WHITE};
+                background:{AMBER};
+                border-color:{AMBER};
+            }}
+            """
+        )
+        archive_btn.clicked.connect(lambda _checked=False, item=customer: self._open_archive(item))
+
+        restore_btn = QPushButton("Restore")
+        restore_btn.setCursor(Qt.PointingHandCursor)
+        restore_btn.setFont(inter(10, QFont.Medium))
+        restore_btn.setFixedSize(70, 30)
+        restore_btn.setStyleSheet(
+            f"""
+            QPushButton {{
+                color:{TEAL_DARK};
+                background:#eef8f6;
+                border:1px solid #b9dcd7;
+                border-radius:15px;
+            }}
+            QPushButton:hover {{
+                color:{WHITE};
+                background:{TEAL};
+                border-color:{TEAL};
+            }}
+            """
+        )
+        restore_btn.clicked.connect(lambda _checked=False, item=customer: self._restore_customer(item))
+
         delete_btn = QPushButton("Delete")
         delete_btn.setCursor(Qt.PointingHandCursor)
         delete_btn.setFont(inter(10, QFont.Medium))
-        delete_btn.setFixedSize(62, 30)
+        delete_btn.setFixedSize(60, 30)
         delete_btn.setStyleSheet(
             f"""
             QPushButton {{
@@ -1249,7 +1337,11 @@ class CustomerView(QWidget):
         )
         delete_btn.clicked.connect(lambda _checked=False, item=customer: self._open_delete(item))
 
-        layout.addWidget(edit_btn)
+        if self._show_archived:
+            layout.addWidget(restore_btn)
+        else:
+            layout.addWidget(edit_btn)
+            layout.addWidget(archive_btn)
         layout.addWidget(delete_btn)
         return wrapper
 
@@ -1326,8 +1418,21 @@ class CustomerView(QWidget):
     def _open_edit(self, customer):
         self._form_modal.open_edit(dict(customer), self._on_form_saved)
 
+    def _open_archive(self, customer):
+        self._delete_modal.open(
+            customer["full_name"],
+            customer["id"],
+            self._on_archive_confirmed,
+            action="archive",
+        )
+
     def _open_delete(self, customer):
-        self._delete_modal.open(customer["full_name"], customer["id"], self._on_delete_confirmed)
+        self._delete_modal.open(
+            customer["full_name"],
+            customer["id"],
+            self._on_delete_confirmed,
+            action="delete",
+        )
 
     def _on_form_saved(self, data, mode):
         if mode == "add":
@@ -1365,6 +1470,20 @@ class CustomerView(QWidget):
         else:
             self._show_error_message("Delete Customer Failed", res)
 
+    def _on_archive_confirmed(self, customer_id):
+        ok, res = CustomerController.archive_customer(customer_id)
+        if ok:
+            self._refresh_visible_customers()
+        else:
+            self._show_error_message("Archive Customer Failed", res)
+
+    def _restore_customer(self, customer):
+        ok, res = CustomerController.restore_customer(customer["id"])
+        if ok:
+            self._refresh_visible_customers()
+        else:
+            self._show_error_message("Restore Customer Failed", res)
+
     def _on_search(self, text):
         self._pending_search_text = text.strip()
         self._search_timer.start()
@@ -1374,19 +1493,58 @@ class CustomerView(QWidget):
         if keyword == "":
             self._load_from_db()
             return
-        ok, res = CustomerController.search_customers(keyword)
+        ok, res = CustomerController.search_customers(keyword, archived=self._show_archived)
         if ok:
             self.load_customers(res)
         else:
             self._show_error_message("Search Failed", res)
 
     # ── Data helpers ──────────────────────────────────────────────────────────
+    def _toggle_archived_customers(self):
+        self._set_archived_mode(not self._show_archived)
+
+    def _set_archived_mode(self, archived, refresh=True):
+        self._show_archived = bool(archived)
+        self._sync_archive_controls()
+        if self._search.text():
+            self._search.blockSignals(True)
+            self._search.clear()
+            self._search.blockSignals(False)
+        self._pending_search_text = ""
+        if refresh:
+            self._load_from_db()
+        else:
+            self.load_customers([])
+
+    def _sync_archive_controls(self):
+        if not hasattr(self, "_archive_toggle_btn"):
+            return
+        if self._show_archived:
+            self._title_lbl.setText("Archived Customers")
+            self._page_sub_lbl.setText("Restore customers when they should be available for new deliveries again.")
+            self._search.setPlaceholderText("Search archived customers...")
+            self._archive_toggle_btn.setText("Active Customers")
+            self._add_btn.hide()
+            if hasattr(self, "_summary_total_card"):
+                self._summary_total_card._title_label.setText("ARCHIVED CUSTOMERS")
+                self._summary_total_card._caption_label.setText("Archived records in current view")
+        else:
+            self._title_lbl.setText("Customers")
+            self._page_sub_lbl.setText("Manage active customer records for G and C LPG Trading.")
+            self._search.setPlaceholderText("Search by name, contact, address, or notes...")
+            self._archive_toggle_btn.setText("View Archived")
+            self._add_btn.show()
+            if hasattr(self, "_summary_total_card"):
+                self._summary_total_card._title_label.setText("ACTIVE CUSTOMERS")
+                self._summary_total_card._caption_label.setText("Active records in current view")
+
     def _customer_row_data(self, customer):
         return {
             "id": customer.get("id"),
             "full_name": customer.get("full_name", ""),
             "address": customer.get("address", ""),
             "contact_number": customer.get("contact_number", ""),
+            "is_active": customer.get("is_active", 1),
             "total_deliveries": customer.get("total_deliveries", 0) or 0,
             "last_delivery": customer.get("last_delivery", "") or "-",
             "notes": customer.get("notes", "") or "-",
@@ -1434,8 +1592,12 @@ class CustomerView(QWidget):
                 f'No customer matched "{keyword}". Try a different name or contact number.'
             )
         else:
-            self._empty_title.setText("No customers yet")
-            self._empty_sub.setText('Click "+ Add Customer" to add your first customer.')
+            if self._show_archived:
+                self._empty_title.setText("No archived customers")
+                self._empty_sub.setText("Archived customers will show here when you hide them from new deliveries.")
+            else:
+                self._empty_title.setText("No active customers")
+                self._empty_sub.setText('Click "+ Add Customer" to add your first customer.')
         self._table_stack.setCurrentWidget(self._customers_page if has_rows else self._empty_state)
 
     # --- Data loading helpers ---
@@ -1451,6 +1613,10 @@ class CustomerView(QWidget):
             self._search.clear()
             self._search.blockSignals(False)
 
+        if self._show_archived:
+            self._show_archived = False
+            self._sync_archive_controls()
+
         self._load_from_db()
 
     def _refresh_visible_customers(self):
@@ -1459,14 +1625,14 @@ class CustomerView(QWidget):
             self._load_from_db()
             return
 
-        ok, res = CustomerController.search_customers(keyword)
+        ok, res = CustomerController.search_customers(keyword, archived=self._show_archived)
         if ok:
             self.load_customers(res)
         else:
             self._show_error_message("Search Failed", res)
 
     def _load_from_db(self):
-        ok, res = CustomerController.list_customers()
+        ok, res = CustomerController.list_customers(archived=self._show_archived)
         if ok:
             self.load_customers(res)
         else:
@@ -1481,6 +1647,24 @@ class CustomerView(QWidget):
                 "Unable to Delete Customer",
                 message,
                 eyebrow="Delete blocked",
+                button_text="OK",
+            )
+            return
+
+        if "archive customer" in lowered_title:
+            self._status_modal.open(
+                "Unable to Archive Customer",
+                message,
+                eyebrow="Archive blocked",
+                button_text="OK",
+            )
+            return
+
+        if "restore customer" in lowered_title:
+            self._status_modal.open(
+                "Unable to Restore Customer",
+                message,
+                eyebrow="Restore blocked",
                 button_text="OK",
             )
             return

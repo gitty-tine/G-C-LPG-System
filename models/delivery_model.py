@@ -125,6 +125,7 @@ class DeliveryModel:
                         WHERE d.customer_id = c.id
                     )                                                       AS last_order_date
                 FROM customers c
+                WHERE c.is_active = 1
                 ORDER BY c.full_name ASC
             """)
             return cursor.fetchall()
@@ -169,6 +170,16 @@ class DeliveryModel:
             cursor = conn.cursor(dictionary=True)
 
             conn.start_transaction()
+
+            cursor.execute("""
+                SELECT id
+                FROM customers
+                WHERE id = %s
+                  AND is_active = 1
+                LIMIT 1
+            """, (customer_id,))
+            if cursor.fetchone() is None:
+                raise ValueError("Selected customer is archived or no longer exists. Please refresh the customer list.")
 
             product_ids = sorted({item["product_id"] for item in items})
             if not product_ids:
