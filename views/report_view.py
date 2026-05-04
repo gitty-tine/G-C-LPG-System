@@ -559,7 +559,6 @@ class ReportTabPanel(QFrame):
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(16)
 
-        # Summary blocks
         sales_frame = QFrame()
         sales_frame.setStyleSheet(
             f"""
@@ -2242,7 +2241,7 @@ class ReportView(QFrame):
         if reload:
             self._apply_filter()
 
-        # Update tab button styles
+        
         for btn_name, btn in self._tab_buttons.items():
             if btn_name == tab_name:
                 btn.setStyleSheet(

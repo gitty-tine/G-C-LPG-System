@@ -2,21 +2,6 @@ from database.connection import get_connection
 
 
 class NotificationModel:
-    _table_ready = False
-
-    TABLE_SQL = """
-        CREATE TABLE IF NOT EXISTS notification_reads (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            user_id INT NOT NULL,
-            notification_key VARCHAR(160) NOT NULL,
-            read_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            UNIQUE KEY uq_notification_reads_user_key (user_id, notification_key),
-            KEY idx_notification_reads_user_read_at (user_id, read_at)
-        )
-    """
-
     TABLE_LABELS = {
         "customers": "Customer",
         "deliveries": "Delivery",
@@ -40,17 +25,10 @@ class NotificationModel:
     }
 
     ROLE_AUDIT_TABLES = {
-        "admin": ("customers", "deliveries", "transactions"),
+        "admin": ("customers", "deliveries", "lpg_products", "transactions"),
         "owner": ("deliveries", "lpg_products", "transactions"),
     }
     DEFAULT_AUDIT_TABLES = ("customers", "deliveries", "lpg_products", "transactions")
-
-    @staticmethod
-    def _ensure_table(cursor):
-        if NotificationModel._table_ready:
-            return
-        cursor.execute(NotificationModel.TABLE_SQL)
-        NotificationModel._table_ready = True
 
     @staticmethod
     def _plural(count, singular, plural=None):
@@ -437,8 +415,6 @@ class NotificationModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
-            NotificationModel._ensure_table(cursor)
-            conn.commit()
 
             evaluated_at, evaluated_at_fmt = NotificationModel._evaluation_stamp(cursor)
             notifications = [
@@ -490,7 +466,6 @@ class NotificationModel:
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            NotificationModel._ensure_table(cursor)
             cursor.execute("""
                 INSERT INTO notification_reads (user_id, notification_key, read_at)
                 VALUES (%s, %s, NOW())
@@ -521,7 +496,6 @@ class NotificationModel:
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            NotificationModel._ensure_table(cursor)
             cursor.executemany("""
                 INSERT INTO notification_reads (user_id, notification_key, read_at)
                 VALUES (%s, %s, NOW())

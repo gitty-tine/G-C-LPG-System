@@ -2,31 +2,7 @@ from database.connection import get_connection
 
 
 class MessageModel:
-    _table_ready = False
-
-    TABLE_SQL = """
-        CREATE TABLE IF NOT EXISTS internal_messages (
-            id INT AUTO_INCREMENT PRIMARY KEY,
-            sender_id INT NOT NULL,
-            receiver_id INT NOT NULL,
-            body TEXT NOT NULL,
-            read_at DATETIME NULL,
-            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            KEY idx_internal_messages_receiver_read (receiver_id, read_at),
-            KEY idx_internal_messages_pair_created (sender_id, receiver_id, created_at),
-            KEY idx_internal_messages_created (created_at)
-        )
-    """
-
     STAFF_ROLE_SQL = "LOWER(COALESCE(role, '')) IN ('admin', 'owner')"
-
-    @staticmethod
-    def _ensure_table(cursor):
-        if MessageModel._table_ready:
-            return
-        cursor.execute(MessageModel.TABLE_SQL)
-        MessageModel._table_ready = True
 
     @staticmethod
     def _role_label(role):
@@ -95,8 +71,6 @@ class MessageModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
-            MessageModel._ensure_table(cursor)
-            conn.commit()
             cursor.execute(
                 """
                 SELECT COUNT(*) AS total
@@ -121,8 +95,6 @@ class MessageModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
-            MessageModel._ensure_table(cursor)
-            conn.commit()
             cursor.execute(
                 f"""
                 SELECT
@@ -229,8 +201,6 @@ class MessageModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
-            MessageModel._ensure_table(cursor)
-            conn.commit()
             cursor.execute(
                 f"""
                 SELECT *
@@ -272,7 +242,6 @@ class MessageModel:
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            MessageModel._ensure_table(cursor)
             cursor.execute(
                 """
                 UPDATE internal_messages
@@ -311,7 +280,6 @@ class MessageModel:
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            MessageModel._ensure_table(cursor)
             if not MessageModel._is_staff_user(cursor, sender_id):
                 raise ValueError("Only owners and admins can send messages.")
             if not MessageModel._is_staff_user(cursor, receiver_id):
