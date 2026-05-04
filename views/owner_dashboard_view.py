@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
 )
 
-from controllers.notification_controller import NotificationController
+from controllers.notification_controller import NotificationController, notification_events
 from controllers.message_controller import MessageController
 from views.message_view import MessageIconButton, MessagingPanel
 from views.admin_dashboard_view import (
@@ -395,6 +395,7 @@ class OwnerDashboardView(QMainWindow):
         self._controller = None
         self._dashboard_data = self._empty_dashboard_data()
         self._dashboard_refresh_interval_ms = 15000
+        self._notification_refresh_interval_ms = 5000
         self._notification_controller = NotificationController(self._user)
         self._notifications = []
         self._message_controller = MessageController(self._user)
@@ -647,10 +648,16 @@ class OwnerDashboardView(QMainWindow):
         self._dashboard_refresh_timer.timeout.connect(self._refresh_dashboard_if_visible)
 
         self._notification_timer = QTimer(self)
-        self._notification_timer.setInterval(15000)
+        self._notification_timer.setInterval(self._notification_refresh_interval_ms)
         self._notification_timer.timeout.connect(self._refresh_notifications)
         self._notification_timer.start()
-        QTimer.singleShot(750, self._refresh_notifications)
+        self._notification_event_timer = QTimer(self)
+        self._notification_event_timer.setSingleShot(True)
+        self._notification_event_timer.setInterval(150)
+        self._notification_event_timer.timeout.connect(self._refresh_notifications)
+        self._notification_events = notification_events()
+        self._notification_events.notifications_changed.connect(self._queue_notification_refresh)
+        QTimer.singleShot(250, self._refresh_notifications)
         QTimer.singleShot(1100, self._refresh_message_badge)
 
         self._name_modal = EditNameModal(central)
@@ -965,6 +972,7 @@ class OwnerDashboardView(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._queue_notification_refresh("dashboard_shown")
         self._sync_dashboard_refresh_timer()
 
     def _refresh_dashboard_if_visible(self):
@@ -1099,6 +1107,12 @@ class OwnerDashboardView(QMainWindow):
         self._notif_btn.set_unread_count(unread)
         if self._notification_dropdown.isVisible():
             self._notification_dropdown.set_notifications(self._notifications)
+
+    def _queue_notification_refresh(self, reason="data_changed"):
+        if not hasattr(self, "_notification_event_timer"):
+            return
+        self._notification_event_timer.start()
+        QTimer.singleShot(220, self._refresh_dashboard_if_visible)
 
     def _toggle_notifications(self):
         if self._notification_dropdown.isVisible():

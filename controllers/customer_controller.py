@@ -7,6 +7,7 @@ if PROJECT_ROOT not in sys.path:
 
 from models.customer_model import CustomerModel
 from controllers.login_controller import LoginController
+from controllers.notification_controller import notify_notifications_changed
 
 
 class CustomerController:
@@ -66,6 +67,7 @@ class CustomerController:
             user_id = CustomerController._current_user_id()
             new_id = CustomerModel.add(full_name, address, contact_number, notes, user_id=user_id)
             created = CustomerModel.get_by_id(new_id)
+            notify_notifications_changed("customer_created")
             return True, created
         except Exception as e:
             return False, str(e)
@@ -76,6 +78,7 @@ class CustomerController:
             user_id = CustomerController._current_user_id()
             CustomerModel.update(customer_id, full_name, address, contact_number, notes, user_id=user_id)
             updated = CustomerModel.get_by_id(customer_id)
+            notify_notifications_changed("customer_updated")
             return True, updated
         except Exception as e:
             return False, str(e)
@@ -85,6 +88,7 @@ class CustomerController:
         try:
             user_id = CustomerController._current_user_id()
             CustomerModel.delete(customer_id, user_id=user_id)
+            notify_notifications_changed("customer_deleted")
             return True, "Customer deleted."
         except Exception as e:
             return False, CustomerController._friendly_customer_error(e, action="delete")
@@ -94,6 +98,7 @@ class CustomerController:
         try:
             user_id = CustomerController._current_user_id()
             CustomerModel.archive(customer_id, user_id=user_id)
+            notify_notifications_changed("customer_archived")
             return True, "Customer archived."
         except Exception as e:
             return False, str(e)
@@ -103,6 +108,7 @@ class CustomerController:
         try:
             user_id = CustomerController._current_user_id()
             CustomerModel.restore(customer_id, user_id=user_id)
+            notify_notifications_changed("customer_restored")
             return True, "Customer restored."
         except Exception as e:
             return False, str(e)

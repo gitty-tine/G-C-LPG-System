@@ -21,7 +21,7 @@ from controllers.account_controller import AccountController
 from controllers.login_controller import LoginController
 from controllers.delivery_controller import DeliveryController
 from controllers.product_controller import ProductController
-from controllers.notification_controller import NotificationController
+from controllers.notification_controller import NotificationController, notification_events
 from controllers.message_controller import MessageController
 from views.message_view import MessageIconButton, MessagingPanel
 
@@ -460,8 +460,15 @@ class NotificationItemWidget(QFrame):
 
         is_read = bool(self._notification.get("is_read"))
         is_high = self._notification.get("severity") == "high"
-        bg = WHITE if is_read else "#f7fcfb"
-        border = GRAY_2 if is_read else TEAL_PALE2
+        source = str(self._notification.get("source") or "").lower()
+        if source == "summary":
+            bg = WHITE if is_read else ("#fff8f2" if is_high else "#fffdf5")
+            border = GRAY_2 if is_read else ("#f0c9bd" if is_high else "#ead8aa")
+            accent = RED if is_high else AMBER
+        else:
+            bg = WHITE if is_read else "#f7fcfb"
+            border = GRAY_2 if is_read else TEAL_PALE2
+            accent = TEAL if not is_read else GRAY_3
         self.setStyleSheet(f"""
             QFrame#notificationItem {{
                 background:{bg};
@@ -480,31 +487,72 @@ class NotificationItemWidget(QFrame):
 
         dot = QFrame()
         dot.setFixedSize(8, 8)
-        dot_color = RED if is_high and not is_read else TEAL if not is_read else GRAY_3
+        dot_color = accent if not is_read else GRAY_3
         dot.setStyleSheet(f"background:{dot_color};border:none;border-radius:4px;")
         root.addWidget(dot, 0, Qt.AlignTop)
 
         text_col = QVBoxLayout()
         text_col.setContentsMargins(0, 0, 0, 0)
-        text_col.setSpacing(3)
+        text_col.setSpacing(5)
 
         title = QLabel(str(self._notification.get("title") or "Notification"))
         title.setFont(inter(10, QFont.DemiBold if not is_read else QFont.Medium))
         title.setStyleSheet(f"color:{TEAL_DARK};background:transparent;border:none;")
 
+        badge_row = QHBoxLayout()
+        badge_row.setContentsMargins(0, 0, 0, 0)
+        badge_row.setSpacing(5)
+
+        source_label = str(self._notification.get("source_label") or ("Summary" if source == "summary" else "Audit"))
+        if source == "summary":
+            badge_row.addWidget(self._badge(source_label.upper(), AMBER, "#fff5dc", "#efd8a4"))
+        else:
+            badge_row.addWidget(self._badge(source_label.upper(), TEAL_DARK, TEAL_PALE, TEAL_PALE2))
+
+        category = str(self._notification.get("category") or "").strip()
+        if category:
+            badge_row.addWidget(self._badge(category.upper(), GRAY_5, "#f5f7f6", GRAY_2))
+
+        severity_label = str(self._notification.get("severity_label") or ("High" if is_high else "Info"))
+        if is_high:
+            badge_row.addWidget(self._badge(severity_label.upper(), RED, RED_BG, "#f2c9c9"))
+        else:
+            badge_row.addWidget(self._badge(severity_label.upper(), GRAY_4, "#f7faf9", GRAY_2))
+        badge_row.addStretch()
+
         message = QLabel(str(self._notification.get("message") or ""))
         message.setWordWrap(True)
-        message.setFont(inter(9))
+        message.setFont(inter(9, QFont.Medium if not is_read else QFont.Normal))
         message.setStyleSheet(f"color:{GRAY_5};background:transparent;border:none;")
 
-        meta = QLabel(str(self._notification.get("created_at_fmt") or ""))
+        meta_text = str(
+            self._notification.get("time_text")
+            or self._notification.get("created_at_fmt")
+            or ""
+        )
+        if source == "summary" and self._notification.get("created_at_fmt"):
+            meta_text = f"{self._notification.get('created_at_fmt')} - {meta_text}"
+        meta = QLabel(meta_text)
+        meta.setWordWrap(True)
         meta.setFont(inter(8))
         meta.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
 
         text_col.addWidget(title)
+        text_col.addLayout(badge_row)
         text_col.addWidget(message)
         text_col.addWidget(meta)
         root.addLayout(text_col, 1)
+
+    def _badge(self, text, fg, bg, border):
+        label = QLabel(str(text or ""))
+        label.setFont(inter(7, QFont.DemiBold))
+        label.setAlignment(Qt.AlignCenter)
+        label.setFixedHeight(18)
+        label.setStyleSheet(
+            f"color:{fg};background:{bg};border:1px solid {border};"
+            "border-radius:4px;padding:1px 6px;letter-spacing:0.5px;"
+        )
+        return label
 
     def mousePressEvent(self, event):
         if self._on_clicked is not None:
@@ -627,7 +675,7 @@ class NotificationDropdown(QFrame):
             self._list_lay.addStretch()
 
         visible_rows = min(max(len(self._notifications), 1), 5)
-        scroll_height = 72 + (visible_rows * 86)
+        scroll_height = 72 + (visible_rows * 110)
         self._scroll.setFixedHeight(scroll_height)
         self.setFixedHeight(61 + scroll_height)
 
@@ -1510,6 +1558,7 @@ class DashboardView(QMainWindow):
         self._controller = None
         self._dashboard_data = self._empty_dashboard_data()
         self._dashboard_refresh_interval_ms = 15000
+        self._notification_refresh_interval_ms = 5000
         self._account_controller = AccountController()
         self._notification_controller = NotificationController(self._user)
         self._notifications = []
@@ -1798,10 +1847,16 @@ class DashboardView(QMainWindow):
         self._dashboard_refresh_timer.timeout.connect(self._refresh_dashboard_if_visible)
 
         self._notification_timer = QTimer(self)
-        self._notification_timer.setInterval(15000)
+        self._notification_timer.setInterval(self._notification_refresh_interval_ms)
         self._notification_timer.timeout.connect(self._refresh_notifications)
         self._notification_timer.start()
-        QTimer.singleShot(750, self._refresh_notifications)
+        self._notification_event_timer = QTimer(self)
+        self._notification_event_timer.setSingleShot(True)
+        self._notification_event_timer.setInterval(150)
+        self._notification_event_timer.timeout.connect(self._refresh_notifications)
+        self._notification_events = notification_events()
+        self._notification_events.notifications_changed.connect(self._queue_notification_refresh)
+        QTimer.singleShot(250, self._refresh_notifications)
         QTimer.singleShot(1100, self._refresh_message_badge)
 
         # Modals — children of central so they cover everything
@@ -2236,6 +2291,7 @@ class DashboardView(QMainWindow):
 
     def showEvent(self, event):
         super().showEvent(event)
+        self._queue_notification_refresh("dashboard_shown")
         self._sync_dashboard_refresh_timer()
 
     def _refresh_dashboard_if_visible(self):
@@ -2462,6 +2518,12 @@ class DashboardView(QMainWindow):
         self._notif_btn.set_unread_count(unread)
         if self._notification_dropdown.isVisible():
             self._notification_dropdown.set_notifications(self._notifications)
+
+    def _queue_notification_refresh(self, reason="data_changed"):
+        if not hasattr(self, "_notification_event_timer"):
+            return
+        self._notification_event_timer.start()
+        QTimer.singleShot(220, self._refresh_dashboard_if_visible)
 
     def _toggle_notifications(self):
         if self._notification_dropdown.isVisible():

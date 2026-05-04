@@ -760,6 +760,11 @@ class DeliveryItemRow(QWidget):
 	def __init__(self, products, parent=None):
 		super().__init__(parent)
 		self._products = list(products or [])
+		self._item_id = None
+		self._original_product_id = None
+		self._original_product_name = None
+		self._original_type = None
+		self._original_unit_price = None
 		self.setStyleSheet("background:transparent;border:none;")
 		icon_path = _qss_path(MODERN_CHEVRON_ICON)
 
@@ -929,10 +934,43 @@ class DeliveryItemRow(QWidget):
 
 	def item_data(self):
 		return {
+			"item_id": self._item_id,
 			"product_id": self.product_combo.currentData(),
 			"quantity": self.qty_spin.value(),
 			"type": self.type_combo.currentText(),
 		}
+
+	def set_item_data(self, product_id, quantity=1, item_type="Refill", item_id=None, unit_price=None, product_name=None):
+		try:
+			self._item_id = int(item_id) if item_id is not None else None
+		except Exception:
+			self._item_id = None
+		self._original_product_id = product_id
+		self._original_product_name = product_name
+		self._original_type = display_item_type(item_type)
+		try:
+			self._original_unit_price = float(unit_price) if unit_price is not None else None
+		except Exception:
+			self._original_unit_price = None
+		self._fill_products()
+		idx = self.product_combo.findData(product_id)
+		self.product_combo.setCurrentIndex(idx if idx != -1 else -1)
+		try:
+			self.qty_spin.setValue(max(1, int(quantity)))
+		except Exception:
+			self.qty_spin.setValue(1)
+		display_type = display_item_type(item_type)
+		type_idx = self.type_combo.findText(display_type)
+		self.type_combo.setCurrentIndex(type_idx if type_idx != -1 else 0)
+
+	def preserved_unit_price(self):
+		if self._item_id is None or self._original_unit_price is None:
+			return None
+		if self.product_combo.currentData() != self._original_product_id:
+			return None
+		if self.type_combo.currentText() != self._original_type:
+			return None
+		return self._original_unit_price
 
 	def set_products(self, products):
 		self._products = list(products or [])
@@ -942,10 +980,29 @@ class DeliveryItemRow(QWidget):
 		current_id = self.product_combo.currentData()
 		self.product_combo.blockSignals(True)
 		self.product_combo.clear()
+		has_original_product = False
 		for product in self._products:
 			self.product_combo.addItem(product["name"], product["id"])
+			if product["id"] == self._original_product_id:
+				has_original_product = True
+		if (
+			self._original_product_id is not None
+			and self._item_id is not None
+			and not has_original_product
+		):
+			label = self._original_product_name or f"Product #{self._original_product_id}"
+			self.product_combo.addItem(f"{label} (Archived)", self._original_product_id)
+			archived_index = self.product_combo.count() - 1
+			model_item = self.product_combo.model().item(archived_index)
+			if model_item is not None:
+				model_item.setFlags(model_item.flags() & ~Qt.ItemIsEnabled)
+				model_item.setForeground(QColor(GRAY_4))
 		if current_id is not None:
 			idx = self.product_combo.findData(current_id)
+			if idx != -1:
+				self.product_combo.setCurrentIndex(idx)
+		elif self._original_product_id is not None:
+			idx = self.product_combo.findData(self._original_product_id)
 			if idx != -1:
 				self.product_combo.setCurrentIndex(idx)
 		self.product_combo.blockSignals(False)
@@ -983,6 +1040,8 @@ class NewDeliveryModal(QWidget):
 		self._products = list(products or [])
 		self._rows = []
 		self._callback = None
+		self._mode = "create"
+		self._edit_delivery = None
 		self._overlay_margin = 28
 		self._card_width = 980
 		self._card_max_height = 620
@@ -1025,16 +1084,16 @@ class NewDeliveryModal(QWidget):
 		h_lay.setContentsMargins(28, 22, 28, 20)
 		h_lay.setSpacing(6)
 
-		title = QLabel("Schedule New Delivery")
-		title.setFont(playfair(20, QFont.DemiBold))
-		title.setStyleSheet(f"color:{WHITE};background:transparent;border:none;")
+		self._title_lbl = QLabel("Schedule New Delivery")
+		self._title_lbl.setFont(playfair(20, QFont.DemiBold))
+		self._title_lbl.setStyleSheet(f"color:{WHITE};background:transparent;border:none;")
 
-		subtitle = QLabel("Fill in the details to create a new delivery.")
-		subtitle.setFont(inter(13))
-		subtitle.setStyleSheet("color:#a8e6df;background:transparent;border:none;")
+		self._subtitle_lbl = QLabel("Fill in the details to create a new delivery.")
+		self._subtitle_lbl.setFont(inter(13))
+		self._subtitle_lbl.setStyleSheet("color:#a8e6df;background:transparent;border:none;")
 
-		h_lay.addWidget(title)
-		h_lay.addWidget(subtitle)
+		h_lay.addWidget(self._title_lbl)
+		h_lay.addWidget(self._subtitle_lbl)
 		card_lay.addWidget(header)
 
 		self._form_scroll = QScrollArea()
@@ -1232,11 +1291,11 @@ class NewDeliveryModal(QWidget):
 		)
 		cancel_btn.clicked.connect(self._cancel)
 
-		save_btn = QPushButton("Save Delivery")
-		save_btn.setCursor(Qt.PointingHandCursor)
-		save_btn.setFont(inter(12, QFont.Medium))
-		save_btn.setFixedHeight(38)
-		save_btn.setStyleSheet(
+		self.save_btn = QPushButton("Save Delivery")
+		self.save_btn.setCursor(Qt.PointingHandCursor)
+		self.save_btn.setFont(inter(12, QFont.Medium))
+		self.save_btn.setFixedHeight(38)
+		self.save_btn.setStyleSheet(
 			f"""
 			QPushButton {{
 				color:{WHITE};background:{TEAL};
@@ -1245,10 +1304,10 @@ class NewDeliveryModal(QWidget):
 			QPushButton:hover {{ background:{TEAL_DARK}; }}
 			"""
 		)
-		save_btn.clicked.connect(self._save)
+		self.save_btn.clicked.connect(self._save)
 
 		f_lay.addWidget(cancel_btn)
-		f_lay.addWidget(save_btn)
+		f_lay.addWidget(self.save_btn)
 		card_lay.addWidget(footer)
 
 		self._add_row()
@@ -1257,12 +1316,26 @@ class NewDeliveryModal(QWidget):
 		"""Refresh dropdown options when data changes."""
 		self._customers = list(customers or [])
 		self._products = list(products or [])
+		if self._mode == "edit" and self._edit_delivery:
+			self._ensure_edit_customer_option(self._edit_delivery)
 		self._fill_customers()
 		for row in self._rows:
 			row.set_products(self._products)
 		self._update_total_estimate()
 
-	def _add_row(self):
+	def _ensure_edit_customer_option(self, delivery):
+		customer_id = delivery.get("customer_id")
+		if customer_id is None:
+			return
+		if any(c.get("id") == customer_id for c in self._customers):
+			return
+		self._customers.insert(0, {
+			"id": customer_id,
+			"name": delivery.get("customer_name") or "Selected customer",
+			"contact": delivery.get("contact") or "",
+		})
+
+	def _add_row(self, item_data=None):
 		row = DeliveryItemRow(self._products)
 		row.remove_btn.clicked.connect(lambda: self._remove_row(row))
 		row.product_combo.currentIndexChanged.connect(self._update_total_estimate)
@@ -1270,10 +1343,34 @@ class NewDeliveryModal(QWidget):
 		row.type_combo.currentIndexChanged.connect(self._update_total_estimate)
 		self._rows.append(row)
 		self.rows_lay.addWidget(row)
+		if item_data:
+			row.set_item_data(
+				item_data.get("product_id"),
+				item_data.get("quantity", 1),
+				item_data.get("type", "Refill"),
+				item_data.get("item_id"),
+				item_data.get("unit_price"),
+				item_data.get("product_name"),
+			)
 		self._update_row_headers()
 		self._update_remove_buttons()
 		self._update_total_estimate()
 		self._reflow_card()
+		return row
+
+	def _clear_item_rows(self):
+		while self._rows:
+			row = self._rows.pop()
+			self.rows_lay.removeWidget(row)
+			row.setParent(None)
+			row.deleteLater()
+
+	def _set_item_rows(self, items):
+		self._clear_item_rows()
+		for item in items or []:
+			self._add_row(item)
+		if not self._rows:
+			self._add_row()
 
 	def _remove_row(self, row_widget):
 		if len(self._rows) == 1:
@@ -1322,23 +1419,57 @@ class NewDeliveryModal(QWidget):
 		for row in self._rows:
 			prod_id = row.product_combo.currentData()
 			prod = self._product_by_id(prod_id)
-			if prod:
-				qty = row.qty_spin.value()
+			price = row.preserved_unit_price()
+			if price is None and prod:
 				is_refill = row.type_combo.currentText() == "Refill"
 				price = prod["refill_price"] if is_refill else prod["new_tank_price"]
 				try:
 					price = float(price)
 				except Exception:
 					price = 0.0
-				total += qty * price
+			if price is not None:
+				total += row.qty_spin.value() * price
 		self._est_total_lbl.setText(f"Estimated total: Php {total:.2f}")
 
 	def open(self, callback):
 		self._callback = callback
+		self._mode = "create"
+		self._edit_delivery = None
 		self._reset_form()
 		self._drag_active = False
 		self._drag_offset = None
 
+		if self.parent():
+			self.setGeometry(self.parent().rect())
+		self._reflow_card()
+		self.show()
+		self.raise_()
+
+	def open_for_edit(self, delivery, callback):
+		self._callback = callback
+		self._reset_form()
+		self._mode = "edit"
+		self._edit_delivery = dict(delivery or {})
+		self._title_lbl.setText("Edit Delivery")
+		self._subtitle_lbl.setText("Update schedule, notes, and items for this pending delivery.")
+		self.save_btn.setText("Save Changes")
+		self._ensure_edit_customer_option(self._edit_delivery)
+		self._fill_customers()
+
+		customer_id = self._edit_delivery.get("customer_id")
+		customer_idx = self.customer_combo.findData(customer_id)
+		if customer_idx != -1:
+			self.customer_combo.setCurrentIndex(customer_idx)
+		self.customer_combo.setEnabled(False)
+
+		schedule_date = self._edit_delivery.get("schedule_date")
+		if isinstance(schedule_date, QDate) and schedule_date.isValid():
+			self.schedule_date.setDate(schedule_date)
+		self.notes.setPlainText(self._edit_delivery.get("notes") or "")
+		self._set_item_rows(self._edit_delivery.get("items") or [])
+
+		self._drag_active = False
+		self._drag_offset = None
 		if self.parent():
 			self.setGeometry(self.parent().rect())
 		self._reflow_card()
@@ -1350,22 +1481,18 @@ class NewDeliveryModal(QWidget):
 		self.hide()
 
 	def _reset_form(self):
+		self._mode = "create"
+		self._edit_delivery = None
+		self._title_lbl.setText("Schedule New Delivery")
+		self._subtitle_lbl.setText("Fill in the details to create a new delivery.")
+		self.save_btn.setText("Save Delivery")
+		self.customer_combo.setEnabled(True)
 		self.error_lbl.hide()
 		self.notes.clear()
 		self.customer_combo.setCurrentIndex(0)
 		self.schedule_date.setDate(QDate.currentDate())
 
-		while len(self._rows) > 1:
-			row = self._rows[-1]
-			self._rows.remove(row)
-			self.rows_lay.removeWidget(row)
-			row.setParent(None)
-			row.deleteLater()
-
-		if self._rows:
-			self._rows[0].qty_spin.setValue(1)
-			self._rows[0].product_combo.setCurrentIndex(0)
-			self._rows[0].type_combo.setCurrentIndex(0)
+		self._set_item_rows([])
 
 		self._update_remove_buttons()
 		self._update_total_estimate()
@@ -1420,7 +1547,7 @@ class NewDeliveryModal(QWidget):
 		self._card.move(x, y)
 
 	def _save(self):
-		if not self._customers:
+		if self._mode != "edit" and not self._customers:
 			self.error_lbl.setText("No customer records available.")
 			self.error_lbl.show()
 			return
@@ -1449,8 +1576,13 @@ class NewDeliveryModal(QWidget):
 			self.error_lbl.show()
 			return
 
+		customer_id = self.customer_combo.currentData()
+		if self._mode == "edit" and self._edit_delivery:
+			customer_id = self._edit_delivery.get("customer_id")
+
 		data = {
-			"customer_id": self.customer_combo.currentData(),
+			"delivery_id": self._edit_delivery.get("id") if self._mode == "edit" and self._edit_delivery else None,
+			"customer_id": customer_id,
 			"schedule_date": schedule_date,
 			"notes": self.notes.toPlainText().strip(),
 			"items": items,
@@ -1461,6 +1593,7 @@ class NewDeliveryModal(QWidget):
 			if self._callback(data) is False:
 				return
 		self.hide()
+		self._reset_form()
 
 
 class DeliveryStatusModal(QWidget):
@@ -2398,63 +2531,72 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 				self._viewport.update()
 		return super().eventFilter(obj, event)
 
+	def _is_pending_row(self, index):
+		status_idx = index.sibling(index.row(), 4)
+		return status_idx.isValid() and status_idx.data() == "Pending"
+
+	def _button_rects(self, option, index):
+		row_rect = _delivery_row_rect(option)
+		btn_h = 34
+		top = row_rect.center().y() - btn_h // 2
+		if self._is_pending_row(index):
+			edit_w = 56
+			update_w = 76
+			gap = 6
+			total_w = edit_w + gap + update_w
+			left = row_rect.center().x() - total_w // 2
+			return {
+				"edit": QRect(left, top, edit_w, btn_h),
+				"status": QRect(left + edit_w + gap, top, update_w, btn_h),
+			}
+
+		btn_w = min(118, max(88, row_rect.width() - 24))
+		return {
+			"status": QRect(
+				row_rect.center().x() - btn_w // 2,
+				top,
+				btn_w,
+				btn_h,
+			)
+		}
+
+	def _draw_button(self, painter, rect, label, is_hovered):
+		border_color = QColor(TEAL) if is_hovered else QColor("#b9dcd7")
+		text_color = QColor(WHITE) if is_hovered else QColor(TEAL_DARK)
+		bg_color = QColor(TEAL) if is_hovered else QColor("#eef8f6")
+		painter.setBrush(bg_color)
+		painter.setPen(QPen(border_color, 1))
+		painter.drawRoundedRect(rect, 17, 17)
+		painter.setFont(inter(9, QFont.Medium))
+		painter.setPen(text_color)
+		painter.drawText(rect, Qt.AlignCenter, label)
+
 	def paint(self, painter, option, index):
 		painter.save()
 
 		is_hovered = (index.row() == self._hovered_row)
 		_paint_delivery_row_segment(painter, option, index, is_hovered)
 
-		# button rect
-		row_rect = _delivery_row_rect(option)
-		btn_w = min(118, max(88, row_rect.width() - 24))
-		btn_h = 34
-		btn_rect = QRect(
-			row_rect.center().x() - btn_w // 2,
-			row_rect.center().y() - btn_h // 2,
-			btn_w,
-			btn_h,
-		)
-
 		painter.setRenderHint(QPainter.Antialiasing)
-
-		# ghost button - border changes to teal on hover
-		border_color = QColor(TEAL) if is_hovered else QColor("#b9dcd7")
-		text_color = QColor(WHITE) if is_hovered else QColor(TEAL_DARK)
-		bg_color = QColor(TEAL) if is_hovered else QColor("#eef8f6")
-
-		painter.setBrush(bg_color)
-		painter.setPen(QPen(border_color, 1))
-		painter.drawRoundedRect(btn_rect, 19, 19)
-
-		# label
-		text_rect = QRect(
-			btn_rect.left(),
-			btn_rect.top(),
-			btn_rect.width(),
-			btn_rect.height()
-		)
-		painter.setFont(inter(9, QFont.Medium))
-		painter.setPen(text_color)
-		painter.drawText(text_rect, Qt.AlignCenter, "Update")
+		rects = self._button_rects(option, index)
+		if "edit" in rects:
+			self._draw_button(painter, rects["edit"], "Edit", is_hovered)
+		self._draw_button(painter, rects["status"], "Update", is_hovered)
 
 		painter.restore()
 
 	def sizeHint(self, option, index):
-		return QSize(126, 78)
+		return QSize(174, 78)
 
 	def editorEvent(self, event, model, option, index):
 		from PySide6.QtCore import QEvent
 		if event.type() == QEvent.MouseButtonRelease:
-			row_rect = _delivery_row_rect(option)
-			btn_w = min(118, max(88, row_rect.width() - 24))
-			btn_h = 34
-			btn_rect = QRect(
-				row_rect.center().x() - btn_w // 2,
-				row_rect.center().y() - btn_h // 2,
-				btn_w,
-				btn_h,
-			)
-			if btn_rect.contains(event.position().toPoint()):
+			rects = self._button_rects(option, index)
+			pos = event.position().toPoint()
+			if "edit" in rects and rects["edit"].contains(pos):
+				self._page.open_edit(index.row())
+				return True
+			if rects["status"].contains(pos):
 				self._page.open_status(index.row())
 				return True
 		return False
@@ -2800,7 +2942,7 @@ class DeliveryView(QWidget):
 		header.resizeSection(1, 150)
 		header.resizeSection(3, 138)
 		header.resizeSection(4, 132)
-		header.resizeSection(5, 126)
+		header.resizeSection(5, 174)
 
 		self._table.setStyleSheet(
 			f"""
@@ -3103,6 +3245,7 @@ class DeliveryView(QWidget):
 				subtotal = 0.0
 			item_rows.append(
 				{
+					"item_id": it.get("item_id"),
 					"product_id": it.get("product_id"),
 					"product_name": it.get("product_name", ""),
 					"quantity": it.get("quantity", 0),
@@ -3251,8 +3394,7 @@ class DeliveryView(QWidget):
 
 	def _open_new_delivery(self):
 		# Rebuild modal options in case data changed.
-		self._new_modal._customers = self._customers
-		self._new_modal._products = self._products
+		self._new_modal.set_options(self._customers, self._products)
 		self._new_modal.open(self._save_new_delivery)
 
 	def _save_new_delivery(self, payload):
@@ -3289,6 +3431,46 @@ class DeliveryView(QWidget):
 		self._saved_modal.open(customer_name, payload["schedule_date"])
 		return True
 
+	def _save_edit_delivery(self, payload):
+		if not self._controller:
+			QMessageBox.warning(self, "Update Failed", "Delivery controller is not connected.")
+			return False
+
+		delivery_id = payload.get("delivery_id")
+		delivery = next((d for d in self._deliveries if d.get("id") == delivery_id), None)
+		if delivery is None:
+			QMessageBox.warning(self, "Update Failed", "Delivery record could not be found. Please refresh and try again.")
+			return False
+		if delivery.get("status") != "Pending":
+			QMessageBox.warning(self, "Update Failed", "Only pending deliveries can be edited.")
+			return False
+
+		schedule_date = self._qdate_to_pydate(payload["schedule_date"])
+		notes = payload.get("notes", "")
+		current_user = LoginController.get_current_user()
+		user_id = current_user.get("id") if current_user else 0
+
+		ok, err = self._controller.update_delivery(
+			delivery_id=delivery_id,
+			user_id=user_id,
+			schedule_date=schedule_date,
+			notes=notes,
+			items=payload["items"],
+		)
+
+		if not ok:
+			QMessageBox.warning(self, "Update Failed", str(err))
+			return False
+
+		self._load_from_controller()
+		self._refresh_table()
+		self._refresh_summary_cards()
+		if self._details_modal.isVisible():
+			updated_delivery = next((d for d in self._deliveries if d.get("id") == delivery_id), None)
+			if updated_delivery and self._load_items_for_delivery(updated_delivery):
+				self._details_modal.open(updated_delivery)
+		return True
+
 	def _delivery_from_proxy_row(self, proxy_row):
 		idx = self._proxy.index(proxy_row, 0)
 		src_idx = self._proxy.mapToSource(idx)
@@ -3313,6 +3495,18 @@ class DeliveryView(QWidget):
 		if delivery is None:
 			return
 		self._status_modal.open(delivery, self._save_status)
+
+	def open_edit(self, proxy_row):
+		delivery = self._delivery_from_proxy_row(proxy_row)
+		if delivery is None:
+			return
+		if delivery.get("status") != "Pending":
+			QMessageBox.information(self, "Edit Delivery", "Only pending deliveries can be edited.")
+			return
+		if not self._load_items_for_delivery(delivery):
+			return
+		self._new_modal.set_options(self._customers, self._products)
+		self._new_modal.open_for_edit(delivery, self._save_edit_delivery)
 
 	def _save_status(self, delivery_id, new_status):
 		if not self._controller:

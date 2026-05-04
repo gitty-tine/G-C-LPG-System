@@ -1,5 +1,54 @@
+import weakref
+
 from controllers.login_controller import LoginController
 from models.notification_model import NotificationModel
+
+
+class _NotificationSignal:
+    def __init__(self):
+        self._subscribers = []
+
+    def connect(self, callback):
+        if getattr(callback, "__self__", None) is None:
+            self._subscribers.append(lambda: callback)
+            return
+        try:
+            ref = weakref.WeakMethod(callback)
+        except TypeError:
+            ref = weakref.ref(callback)
+        self._subscribers.append(ref)
+
+    def emit(self, reason):
+        alive = []
+        for ref in self._subscribers:
+            callback = ref()
+            if callback is None:
+                continue
+            alive.append(ref)
+            try:
+                callback(reason)
+            except RuntimeError:
+                continue
+        self._subscribers = alive
+
+
+class NotificationEventBus:
+    def __init__(self):
+        self.notifications_changed = _NotificationSignal()
+
+
+_notification_events = None
+
+
+def notification_events():
+    global _notification_events
+    if _notification_events is None:
+        _notification_events = NotificationEventBus()
+    return _notification_events
+
+
+def notify_notifications_changed(reason="data_changed"):
+    notification_events().notifications_changed.emit(str(reason or "data_changed"))
 
 
 class NotificationController:

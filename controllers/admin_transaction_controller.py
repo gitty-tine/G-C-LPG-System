@@ -8,6 +8,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from controllers.login_controller import LoginController
+from controllers.notification_controller import notify_notifications_changed
 from models.admin_transaction_model import TransactionModel
 
 
@@ -44,6 +45,7 @@ class AdminTransactionController(QObject):
             TransactionModel.mark_paid(delivery_id, user_id=user_id)
             if self._view:
                 self.load()
+            notify_notifications_changed("transaction_paid")
             return True, None
         except ValueError as exc:
             if self._view:

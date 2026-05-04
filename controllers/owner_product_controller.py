@@ -11,6 +11,7 @@ if PROJECT_ROOT not in sys.path:
 
 from models.owner_product_model import OwnerProductModel
 from controllers.login_controller import LoginController
+from controllers.notification_controller import notify_notifications_changed
 
 
 class OwnerProductController(QObject):
@@ -194,6 +195,7 @@ class OwnerProductController(QObject):
             )
             created = OwnerProductModel.get_by_id(new_id)
             self.refresh_products()
+            notify_notifications_changed("product_created")
             return True, created
         except Exception as exc:
             return False, self._friendly_product_error(exc)
@@ -217,6 +219,7 @@ class OwnerProductController(QObject):
             )
             after = OwnerProductModel.get_by_id(product_id)
             self.refresh_products()
+            notify_notifications_changed("product_updated")
             return True, after
         except Exception as exc:
             return False, self._friendly_product_error(exc)
@@ -229,6 +232,7 @@ class OwnerProductController(QObject):
             user_id = self._current_user_id()
             OwnerProductModel.archive(product_id, user_id=user_id)
             self.refresh_products()
+            notify_notifications_changed("product_archived")
             return True, None
         except Exception as exc:
             self._error("Archive Product Failed", exc)
@@ -242,6 +246,7 @@ class OwnerProductController(QObject):
             user_id = self._current_user_id()
             OwnerProductModel.delete(product_id, user_id=user_id)
             self.refresh_products(archived=archived)
+            notify_notifications_changed("product_deleted")
             return True, None
         except Exception as exc:
             return False, self._friendly_product_error(exc)
@@ -254,6 +259,7 @@ class OwnerProductController(QObject):
             user_id = self._current_user_id()
             OwnerProductModel.restore(product_id, user_id=user_id)
             self.refresh_products(archived=True)
+            notify_notifications_changed("product_restored")
             return True, None
         except Exception as exc:
             return False, self._friendly_product_error(exc)
