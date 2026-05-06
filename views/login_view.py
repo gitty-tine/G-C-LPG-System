@@ -31,6 +31,8 @@ PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
+from utils.error_logger import install_error_logging_hooks, log_exception
+
 ASSETS_DIR = os.path.join(PROJECT_ROOT, "assets")
 INTER_FAMILY = "Inter"
 
@@ -76,6 +78,33 @@ LOGIN_CHARACTER = asset_path("login_char.png")
 LOGIN_LOGO = asset_path("login_firelogo.png")
 LOGIN_PROFILE = asset_path("login_profile.png")
 LOGIN_PASSWORD = asset_path("login_pass.png")
+
+
+class ErrorLoggingApplication(QApplication):
+    def notify(self, receiver, event):
+        try:
+            return super().notify(receiver, event)
+        except Exception as exc:
+            log_exception(
+                exc,
+                source="qt",
+                action="event_notify",
+                severity="CRITICAL",
+                context={
+                    "receiver": repr(receiver),
+                    "event_type": self._event_type(event),
+                },
+            )
+            raise
+
+    @staticmethod
+    def _event_type(event):
+        if event is None:
+            return None
+        try:
+            return int(event.type())
+        except Exception:
+            return str(event.type())
 
 
 class AspectImageLabel(QLabel):
@@ -328,7 +357,7 @@ class LoginView(QMainWindow):
             }}
             QLabel#title {{
                 color:#050706;
-                font-size:{scaled(43)}px;
+                font-size:{scaled(41)}px;
                 font-weight:800;
             }}
             QLabel#fieldLabel {{
@@ -339,7 +368,7 @@ class LoginView(QMainWindow):
             }}
             QLabel#formError {{
                 color:{ERROR};
-                font-size:{scaled(13)}px;
+                font-size:{scaled(14)}px;
                 font-weight:700;
             }}
             QLabel#copyright {{
@@ -422,13 +451,13 @@ class LoginView(QMainWindow):
         logo = QLabel()
         logo.setAlignment(Qt.AlignCenter)
         logo.setStyleSheet("background:transparent;border:none;")
-        logo.setFixedHeight(scaled(112))
+        logo.setFixedHeight(scaled(102))
         logo_pix = QPixmap(LOGIN_LOGO) if os.path.exists(LOGIN_LOGO) else QPixmap()
         if not logo_pix.isNull():
-            logo_size = scaled(106)
+            logo_size = scaled(96)
             logo.setPixmap(logo_pix.scaled(logo_size, logo_size, Qt.KeepAspectRatio, Qt.SmoothTransformation))
         card_lay.addWidget(logo)
-        card_lay.addSpacing(scaled(16))
+        card_lay.addSpacing(scaled(12))
 
         brand = QLabel("G & C LPG TRADING")
         brand.setObjectName("brand")
@@ -441,9 +470,9 @@ class LoginView(QMainWindow):
         title.setObjectName("title")
         title.setAlignment(Qt.AlignCenter)
         title.setWordWrap(True)
-        title.setFixedHeight(scaled(104))
+        title.setFixedHeight(scaled(98))
         card_lay.addWidget(title)
-        card_lay.addSpacing(scaled(38))
+        card_lay.addSpacing(scaled(34))
 
         divider = QFrame()
         divider.setFixedHeight(1)
@@ -482,19 +511,17 @@ class LoginView(QMainWindow):
         self.pw_input.textChanged.connect(self._clear_error_styles)
         card_lay.addWidget(self.pw_wrap)
 
-        self.form_error = QLabel("")
+        self.form_error = QLabel("", card)
         self.form_error.setObjectName("formError")
-        self.form_error.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.form_error.setAlignment(Qt.AlignLeft | Qt.AlignTop)
         self.form_error.setWordWrap(True)
-        self.form_error.setFixedHeight(scaled(18))
-        self.form_error.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        card_lay.addSpacing(scaled(8))
-        card_lay.addWidget(self.form_error)
-        card_lay.addSpacing(scaled(8))
+        self.form_error.setFixedHeight(scaled(42))
+        self.form_error.hide()
+        card_lay.addSpacing(scaled(42))
 
-        sign_btn = LoginButton("LOG IN")
-        sign_btn.clicked.connect(self.handle_login)
-        card_lay.addWidget(sign_btn)
+        self.sign_btn = LoginButton("LOG IN")
+        self.sign_btn.clicked.connect(self.handle_login)
+        card_lay.addWidget(self.sign_btn)
 
         forgot_row = QHBoxLayout()
         forgot_row.setContentsMargins(0, scaled(19), 0, 0)
@@ -530,6 +557,7 @@ class LoginView(QMainWindow):
 
         self._apply_reference_geometry()
         QTimer.singleShot(0, self._apply_reference_geometry)
+        QTimer.singleShot(0, self._position_form_error)
 
     def _apply_reference_geometry(self):
         central = self.centralWidget()
@@ -547,6 +575,7 @@ class LoginView(QMainWindow):
         self.card.setGeometry(origin_x + scaled(236), origin_y + scaled(84), scaled(742), scaled(912))
         self.hero.setGeometry(origin_x + scaled(1015), origin_y + scaled(155), scaled(900), scaled(860))
         self.copy.setGeometry(0, height - scaled(53), width, scaled(32))
+        self._position_form_error()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -609,7 +638,41 @@ class LoginView(QMainWindow):
         self.pw_wrap.setProperty("error", password_error)
         self._refresh_error_style(self.username_wrap)
         self._refresh_error_style(self.pw_wrap)
+        message = str(message or "").strip()
         self.form_error.setText(message)
+        self.form_error.setVisible(bool(message))
+        self._position_form_error()
+        if message:
+            self.form_error.raise_()
+
+    def _form_error_height(self, message):
+        if not message:
+            return 0
+        line_count = max(1, message.count("\n") + 1)
+        if len(message) > 90:
+            line_count = max(line_count, 3)
+        elif len(message) > 48:
+            line_count = max(line_count, 2)
+        return scaled(min(42, 22 + ((line_count - 1) * 16)))
+
+    def _position_form_error(self):
+        if not all(hasattr(self, name) for name in ("form_error", "pw_wrap", "sign_btn")):
+            return
+
+        width = self.pw_wrap.width()
+        x = self.pw_wrap.x()
+        y = self.pw_wrap.y() + self.pw_wrap.height() + scaled(7)
+        height = self._form_error_height(self.form_error.text())
+        button_y = self.sign_btn.y()
+
+        if width <= 0:
+            width = scaled(598)
+        if height <= 0:
+            height = scaled(34)
+        if button_y > y:
+            height = min(height, max(scaled(14), button_y - y - scaled(3)))
+
+        self.form_error.setGeometry(x, y, width, height)
 
     def _clear_error_styles(self):
         if self.username_wrap.property("error") or self.pw_wrap.property("error"):
@@ -692,7 +755,8 @@ class LoginView(QMainWindow):
 
 
 def main():
-    app = QApplication(sys.argv)
+    install_error_logging_hooks()
+    app = ErrorLoggingApplication(sys.argv)
     load_fonts()
     app.setFont(QFont(INTER_FAMILY, 11))
     view = LoginView()

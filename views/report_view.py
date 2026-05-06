@@ -1288,6 +1288,14 @@ class ReportTabPanel(QFrame):
             self._write_pdf(file_path)
             ExportNoticeDialog("Export Successful", f"PDF exported successfully to:\n{file_path}", self).exec()
         except Exception as exc:
+            from utils.error_logger import log_exception
+
+            log_exception(
+                exc,
+                source="views.report_view",
+                action="export_pdf",
+                context={"file_path": file_path, "period_name": self.period_name},
+            )
             ExportNoticeDialog("Export Failed", f"Could not export PDF report.\n\n{exc}", self).exec()
 
     def _report_type_label(self):
@@ -1799,6 +1807,14 @@ class ReportTabPanel(QFrame):
 
             ExportNoticeDialog("Export Successful", f"Excel exported successfully to:\n{file_path}", self).exec()
         except Exception as exc:
+            from utils.error_logger import log_exception
+
+            log_exception(
+                exc,
+                source="views.report_view",
+                action="export_excel",
+                context={"file_path": file_path, "period_name": self.period_name},
+            )
             ExportNoticeDialog("Export Failed", f"Could not export Excel report.\n\n{exc}", self).exec()
 
     def _refresh_metrics(self, summary=None):

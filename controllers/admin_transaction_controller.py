@@ -10,6 +10,7 @@ if PROJECT_ROOT not in sys.path:
 from controllers.login_controller import LoginController
 from controllers.notification_controller import notify_notifications_changed
 from models.admin_transaction_model import TransactionModel
+from utils.error_logger import log_exception
 
 
 class AdminTransactionController(QObject):
@@ -35,6 +36,12 @@ class AdminTransactionController(QObject):
                 self._view.load_transactions(transactions)
             return True, transactions
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.admin_transaction_controller",
+                action="load",
+                context={"date_from": date_from, "date_to": date_to},
+            )
             if self._view:
                 self._view.show_error("Load Failed", str(exc))
             return False, str(exc)
@@ -52,6 +59,12 @@ class AdminTransactionController(QObject):
                 self._view.show_error("Already Paid", str(exc))
             return False, str(exc)
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.admin_transaction_controller",
+                action="mark_paid",
+                context={"delivery_id": delivery_id},
+            )
             if self._view:
                 self._view.show_error("Update Failed", str(exc))
             return False, str(exc)

@@ -2,6 +2,7 @@ import weakref
 
 from controllers.login_controller import LoginController
 from models.notification_model import NotificationModel
+from utils.error_logger import log_exception
 
 
 class _NotificationSignal:
@@ -72,6 +73,11 @@ class NotificationController:
             )
             return True, notifications
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.notification_controller",
+                action="list_notifications",
+            )
             return False, str(exc)
 
     def mark_read(self, notification_key):
@@ -79,6 +85,12 @@ class NotificationController:
             NotificationModel.mark_read(self._user_id(), notification_key)
             return True, None
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.notification_controller",
+                action="mark_read",
+                context={"notification_key": notification_key},
+            )
             return False, str(exc)
 
     def mark_all_read(self, notification_keys):
@@ -86,4 +98,10 @@ class NotificationController:
             NotificationModel.mark_many_read(self._user_id(), notification_keys)
             return True, None
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.notification_controller",
+                action="mark_all_read",
+                context={"notification_count": len(notification_keys or [])},
+            )
             return False, str(exc)

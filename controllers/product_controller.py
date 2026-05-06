@@ -8,6 +8,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from models.product_model import ProductModel
+from utils.error_logger import log_exception
 
 
 class ProductController(QObject):
@@ -44,6 +45,7 @@ class ProductController(QObject):
         try:
             return True, ProductModel.get_all()
         except Exception as e:
+            log_exception(e, source="controllers.product_controller", action="list_products")
             return False, str(e)
 
     @staticmethod
@@ -53,6 +55,12 @@ class ProductController(QObject):
                 return True, ProductModel.get_all()
             return True, ProductModel.search(keyword)
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.product_controller",
+                action="search_products",
+                context={"keyword": keyword},
+            )
             return False, str(e)
 
 

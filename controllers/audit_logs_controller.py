@@ -6,6 +6,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from models.audit_logs_model import AuditLogModel
+from utils.error_logger import log_exception
 
 
 class AuditLogsController:
@@ -29,6 +30,17 @@ class AuditLogsController:
                 self._view.load_logs(logs)
             return True, logs
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.audit_logs_controller",
+                action="load",
+                context={
+                    "action": action,
+                    "section": section,
+                    "date_from": date_from,
+                    "date_to": date_to,
+                },
+            )
             if self._view:
                 self._view.show_error("Load Failed", str(exc))
             return False, str(exc)

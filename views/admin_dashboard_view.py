@@ -1415,6 +1415,14 @@ class ForgotPasswordModal(ModalOverlay):
         try:
             send_reset_code(email, code, user.get("full_name", ""))
         except Exception as exc:
+            from utils.error_logger import log_exception
+
+            log_exception(
+                exc,
+                source="views.admin_dashboard_view",
+                action="forgot_password_send_code",
+                context={"email": email},
+            )
             self._show_error(f"Failed to send email: {exc}")
             return
 

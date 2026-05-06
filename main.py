@@ -6,9 +6,11 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from views.login_view import main as run_login
+from utils.error_logger import install_error_logging_hooks
 
 
 def main():
+    install_error_logging_hooks()
     run_login()
 
 

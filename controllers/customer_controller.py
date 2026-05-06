@@ -8,6 +8,7 @@ if PROJECT_ROOT not in sys.path:
 from models.customer_model import CustomerModel
 from controllers.login_controller import LoginController
 from controllers.notification_controller import notify_notifications_changed
+from utils.error_logger import log_exception
 
 
 class CustomerController:
@@ -43,6 +44,12 @@ class CustomerController:
         try:
             return True, CustomerModel.get_all(archived=archived)
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.customer_controller",
+                action="list_customers",
+                context={"archived": archived},
+            )
             return False, str(e)
 
     @staticmethod
@@ -52,6 +59,12 @@ class CustomerController:
                 return True, CustomerModel.get_all(archived=archived)
             return True, CustomerModel.search(keyword, archived=archived)
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.customer_controller",
+                action="search_customers",
+                context={"keyword": keyword, "archived": archived},
+            )
             return False, str(e)
 
     @staticmethod
@@ -59,6 +72,7 @@ class CustomerController:
         try:
             return True, CustomerModel.get_active()
         except Exception as e:
+            log_exception(e, source="controllers.customer_controller", action="get_active_customers")
             return False, str(e)
 
     @staticmethod
@@ -70,6 +84,12 @@ class CustomerController:
             notify_notifications_changed("customer_created")
             return True, created
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.customer_controller",
+                action="add_customer",
+                context={"full_name": full_name, "contact_number": contact_number},
+            )
             return False, str(e)
 
     @staticmethod
@@ -81,6 +101,12 @@ class CustomerController:
             notify_notifications_changed("customer_updated")
             return True, updated
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.customer_controller",
+                action="update_customer",
+                context={"customer_id": customer_id, "full_name": full_name},
+            )
             return False, str(e)
 
     @staticmethod
@@ -91,6 +117,12 @@ class CustomerController:
             notify_notifications_changed("customer_deleted")
             return True, "Customer deleted."
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.customer_controller",
+                action="delete_customer",
+                context={"customer_id": customer_id},
+            )
             return False, CustomerController._friendly_customer_error(e, action="delete")
 
     @staticmethod
@@ -101,6 +133,12 @@ class CustomerController:
             notify_notifications_changed("customer_archived")
             return True, "Customer archived."
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.customer_controller",
+                action="archive_customer",
+                context={"customer_id": customer_id},
+            )
             return False, str(e)
 
     @staticmethod
@@ -111,6 +149,12 @@ class CustomerController:
             notify_notifications_changed("customer_restored")
             return True, "Customer restored."
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.customer_controller",
+                action="restore_customer",
+                context={"customer_id": customer_id},
+            )
             return False, str(e)
 
 def list_customers(archived=False):

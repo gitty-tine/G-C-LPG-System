@@ -1,4 +1,5 @@
 from models.login_model import LoginModel
+from utils.error_logger import log_exception
 
 
 class LoginController:
@@ -12,7 +13,14 @@ class LoginController:
         try:
             user = LoginModel.authenticate(username, password)
         except Exception as e:
-            return False, f"Could not connect to the database.\n{e}"
+            log_exception(
+                e,
+                source="controllers.login_controller",
+                action="login",
+                severity="CRITICAL",
+                context={"username": username},
+            )
+            return False, "Could not connect to the database. Please check the database server and try again."
 
         if user is None:
             return False, "Incorrect username or password."

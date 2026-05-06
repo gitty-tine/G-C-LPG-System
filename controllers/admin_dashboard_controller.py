@@ -8,6 +8,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from models.admin_dashboard_model import AdminDashboardModel
+from utils.error_logger import log_exception
 
 
 class AdminDashboardController(QObject):
@@ -46,6 +47,7 @@ class AdminDashboardController(QObject):
         try:
             return True, AdminDashboardModel.get_all_dashboard_data()
         except Exception as exc:  # pylint: disable=broad-except
+            log_exception(exc, source="controllers.admin_dashboard_controller", action="get_dashboard_data")
             return False, str(exc)
 
     @staticmethod
@@ -53,6 +55,7 @@ class AdminDashboardController(QObject):
         try:
             return True, AdminDashboardModel.get_kpi_counts()
         except Exception as exc:  # pylint: disable=broad-except
+            log_exception(exc, source="controllers.admin_dashboard_controller", action="get_kpi_counts")
             return False, str(exc)
 
     @staticmethod
@@ -60,6 +63,7 @@ class AdminDashboardController(QObject):
         try:
             return True, AdminDashboardModel.get_todays_deliveries()
         except Exception as exc:  # pylint: disable=broad-except
+            log_exception(exc, source="controllers.admin_dashboard_controller", action="get_todays_deliveries")
             return False, str(exc)
 
     @staticmethod
@@ -67,6 +71,7 @@ class AdminDashboardController(QObject):
         try:
             return True, AdminDashboardModel.get_unpaid_deliveries()
         except Exception as exc:  # pylint: disable=broad-except
+            log_exception(exc, source="controllers.admin_dashboard_controller", action="get_unpaid_deliveries")
             return False, str(exc)
 
     def _push(self, data):

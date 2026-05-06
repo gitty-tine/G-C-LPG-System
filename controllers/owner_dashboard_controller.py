@@ -8,6 +8,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from models.owner_dashboard_model import OwnerDashboardModel
+from utils.error_logger import log_exception
 
 
 class OwnerDashboardController(QObject):
@@ -46,6 +47,7 @@ class OwnerDashboardController(QObject):
         try:
             return True, OwnerDashboardModel.get_all_dashboard_data()
         except Exception as exc:  # pylint: disable=broad-except
+            log_exception(exc, source="controllers.owner_dashboard_controller", action="get_dashboard_data")
             return False, str(exc)
 
     def _push(self, data):

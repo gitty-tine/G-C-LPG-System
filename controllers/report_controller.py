@@ -9,6 +9,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from models.report_model import ReportModel
+from utils.error_logger import log_exception
 
 
 class ReportController(QObject):
@@ -37,6 +38,16 @@ class ReportController(QObject):
 
             return True, payload
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.report_controller",
+                action="load_period",
+                context={
+                    "period_name": period_name,
+                    "date_from": date_from,
+                    "date_to": date_to,
+                },
+            )
             if self._view and hasattr(self._view, "show_error"):
                 self._view.show_error("Load Failed", str(exc))
             return False, str(exc)

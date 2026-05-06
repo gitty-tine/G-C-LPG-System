@@ -12,6 +12,7 @@ if PROJECT_ROOT not in sys.path:
 from models.owner_product_model import OwnerProductModel
 from controllers.login_controller import LoginController
 from controllers.notification_controller import notify_notifications_changed
+from utils.error_logger import log_exception
 
 
 class OwnerProductController(QObject):
@@ -198,6 +199,12 @@ class OwnerProductController(QObject):
             notify_notifications_changed("product_created")
             return True, created
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.owner_product_controller",
+                action="add_product",
+                context={"product_name": (product or {}).get("name")},
+            )
             return False, self._friendly_product_error(exc)
 
     def update_product(self, product):
@@ -222,6 +229,12 @@ class OwnerProductController(QObject):
             notify_notifications_changed("product_updated")
             return True, after
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.owner_product_controller",
+                action="update_product",
+                context={"product_id": (product or {}).get("id"), "product_name": (product or {}).get("name")},
+            )
             return False, self._friendly_product_error(exc)
 
     def archive_product(self, product):
@@ -235,6 +248,12 @@ class OwnerProductController(QObject):
             notify_notifications_changed("product_archived")
             return True, None
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.owner_product_controller",
+                action="archive_product",
+                context={"product_id": (product or {}).get("id")},
+            )
             self._error("Archive Product Failed", exc)
             return False, self._friendly_product_error(exc)
 
@@ -249,6 +268,12 @@ class OwnerProductController(QObject):
             notify_notifications_changed("product_deleted")
             return True, None
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.owner_product_controller",
+                action="delete_product",
+                context={"product_id": (product or {}).get("id"), "archived": archived},
+            )
             return False, self._friendly_product_error(exc)
 
     def restore_product(self, product):
@@ -262,6 +287,12 @@ class OwnerProductController(QObject):
             notify_notifications_changed("product_restored")
             return True, None
         except Exception as exc:
+            log_exception(
+                exc,
+                source="controllers.owner_product_controller",
+                action="restore_product",
+                context={"product_id": (product or {}).get("id")},
+            )
             return False, self._friendly_product_error(exc)
 
     # Static helpers (legacy-style) --------------------------------------------------
@@ -270,6 +301,12 @@ class OwnerProductController(QObject):
         try:
             return True, OwnerProductModel.get_all(archived=archived)
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.owner_product_controller",
+                action="list_products",
+                context={"archived": archived},
+            )
             return False, str(e)
 
     @staticmethod
@@ -280,6 +317,12 @@ class OwnerProductController(QObject):
                 return True, OwnerProductModel.get_all(archived=archived)
             return True, OwnerProductModel.search(kw, archived=archived)
         except Exception as e:
+            log_exception(
+                e,
+                source="controllers.owner_product_controller",
+                action="search",
+                context={"keyword": keyword, "archived": archived},
+            )
             return False, str(e)
 
     # Internal helpers ---------------------------------------------------------------

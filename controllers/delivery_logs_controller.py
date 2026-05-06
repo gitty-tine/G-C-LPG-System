@@ -6,6 +6,7 @@ if PROJECT_ROOT not in sys.path:
     sys.path.insert(0, PROJECT_ROOT)
 
 from models.delivery_logs_model import DeliveryLogsModel
+from utils.error_logger import log_exception
 
 
 class DeliveryLogsController:
@@ -24,6 +25,7 @@ class DeliveryLogsController:
                 self._view.load_logs(logs)
             return True, logs
         except Exception as exc:
+            log_exception(exc, source="controllers.delivery_logs_controller", action="load")
             if self._view:
                 self._view.show_error("Load Failed", str(exc))
             return False, str(exc)
