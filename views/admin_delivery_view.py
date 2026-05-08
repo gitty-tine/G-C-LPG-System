@@ -1835,9 +1835,19 @@ class DeliveryStatusModal(QWidget):
 		self.status_combo.setFont(inter(12))
 		apply_modern_combo(self.status_combo, min_height=40)
 
+		self.error_lbl = QLabel("")
+		self.error_lbl.setFont(inter(11, QFont.Medium))
+		self.error_lbl.setWordWrap(True)
+		self.error_lbl.setStyleSheet(
+			f"color:{RED_BTN};background:{RED_BG};"
+			"border:1px solid #f1c8c8;border-radius:8px;padding:10px 12px;"
+		)
+		self.error_lbl.hide()
+
 		lay.addWidget(title)
 		lay.addWidget(self.current_lbl)
 		lay.addWidget(self.status_combo)
+		lay.addWidget(self.error_lbl)
 
 		row = QHBoxLayout()
 		row.setSpacing(10)
@@ -1880,18 +1890,17 @@ class DeliveryStatusModal(QWidget):
 	def open(self, delivery, callback):
 		self._delivery_id = delivery["id"]
 		self._callback = callback
+		self.clear_error()
 		current = display_status(delivery.get("status", ""))
 		self.current_lbl.setText(f"Current status: {current}")
 
 		allowed = {
 			"Pending": ["Pending", "In Transit", "Delivered", "Cancelled"],
 			"In Transit": ["In Transit", "Delivered", "Cancelled"],
-			"Delivered": ["Delivered", "Cancelled"]
-				if str(delivery.get("payment_status", "")).strip().lower() != "paid"
-				else ["Delivered"],
+			"Delivered": ["Delivered"],
 			"Cancelled": ["Cancelled"],
 		}
-		default_options = ["Pending", "In Transit", "Delivered", "Cancelled"]
+		default_options = [current] if current else ["Pending"]
 		self.status_combo.clear()
 		for s in allowed.get(current, default_options):
 			self.status_combo.addItem(s)
@@ -1947,7 +1956,20 @@ class DeliveryStatusModal(QWidget):
 		y = (self.height() - self._card.height()) // 2
 		self._card.move(max(0, x), max(0, y))
 
+	def clear_error(self):
+		self.error_lbl.clear()
+		self.error_lbl.hide()
+		self._card.adjustSize()
+		self._center_card()
+
+	def show_error(self, message):
+		self.error_lbl.setText(str(message or "Unable to update delivery status."))
+		self.error_lbl.show()
+		self._card.adjustSize()
+		self._center_card()
+
 	def _save(self):
+		self.clear_error()
 		if self._callback and self._delivery_id is not None:
 			if self._callback(self._delivery_id, self.status_combo.currentText()) is False:
 				return
@@ -2108,6 +2130,8 @@ class DeliveryDetailsModal(QWidget):
 		self._drag_active = False
 		self._drag_offset = None
 		self._header_drag_height = 72
+		self._item_row_height = 52
+		self._visible_item_rows = 4
 		self.hide()
 
 		self._card = QFrame(self)
@@ -2265,6 +2289,7 @@ class DeliveryDetailsModal(QWidget):
 		self.items_scroll = QScrollArea()
 		self.items_scroll.setWidgetResizable(True)
 		self.items_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		self.items_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 		self.items_scroll.setStyleSheet(
 			f"""
 			QScrollArea {{ background:{WHITE}; border:none; border-bottom-left-radius:8px; border-bottom-right-radius:8px; }}
@@ -2275,7 +2300,7 @@ class DeliveryDetailsModal(QWidget):
 			QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background:transparent; }}
 			"""
 		)
-		self.items_scroll.setMaximumHeight(320)
+		self.items_scroll.setFixedHeight(self._item_row_height)
 		self.items_scroll.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
 
 		self.items_holder = QWidget()
@@ -2355,7 +2380,7 @@ class DeliveryDetailsModal(QWidget):
 
 	def _add_item_row(self, item):
 		row = QWidget()
-		row.setMinimumHeight(52)
+		row.setFixedHeight(self._item_row_height)
 		row.setStyleSheet(
 			"QWidget{background:#fbfdfc;border:none;border-bottom:1px solid #edf2f0;}"
 			"QWidget:hover{background:#eef8f6;}"
@@ -2385,6 +2410,10 @@ class DeliveryDetailsModal(QWidget):
 		row_grid.setColumnMinimumWidth(3, 120)
 
 		self.items_lay.addWidget(row)
+
+	def _resize_items_scroll(self, row_count):
+		visible_rows = min(max(int(row_count or 1), 1), self._visible_item_rows)
+		self.items_scroll.setFixedHeight(visible_rows * self._item_row_height)
 
 	def open(self, delivery):
 		date_text = delivery["schedule_date"].toString("MMM d, yyyy")
@@ -2417,7 +2446,7 @@ class DeliveryDetailsModal(QWidget):
 		items = delivery.get("items") or []
 		if not items:
 			empty_row = QWidget()
-			empty_row.setMinimumHeight(52)
+			empty_row.setFixedHeight(self._item_row_height)
 			empty_row.setStyleSheet(f"background:#fbfdfc;border:none;border-bottom:1px solid #edf2f0;")
 			empty_lay = QHBoxLayout(empty_row)
 			empty_lay.setContentsMargins(14, 0, 14, 0)
@@ -2428,9 +2457,9 @@ class DeliveryDetailsModal(QWidget):
 			self.items_lay.addWidget(empty_row)
 		for item in items:
 			self._add_item_row(item)
+		self.items_lay.activate()
 		self.items_holder.adjustSize()
-		items_height = self.items_holder.sizeHint().height()
-		self.items_scroll.setFixedHeight(min(320, max(52, items_height)))
+		self._resize_items_scroll(len(items) if items else 1)
 
 		self.total_lbl.setText(f"Php {delivery['total_amount']:,.2f}")
 
@@ -3703,7 +3732,7 @@ class DeliveryView(QWidget):
 
 	def _save_status(self, delivery_id, new_status):
 		if not self._controller:
-			QMessageBox.warning(self, "Update Failed", "Delivery controller is not connected.")
+			self._status_modal.show_error("Delivery controller is not connected.")
 			return False
 
 		user = LoginController.get_current_user()
@@ -3711,7 +3740,7 @@ class DeliveryView(QWidget):
 
 		ok, err = self._controller.update_status(delivery_id, db_status(new_status), user_id)
 		if not ok:
-			QMessageBox.warning(self, "Update Failed", str(err))
+			self._status_modal.show_error(self._status_error_message(err))
 			return False
 		# Reload fresh data from DB to ensure totals/items reflect changes and triggers.
 		self._load_from_controller()
@@ -3719,6 +3748,12 @@ class DeliveryView(QWidget):
 		self._refresh_table()
 		self._refresh_summary_cards()
 		return True
+
+	def _status_error_message(self, error):
+		message = str(error or "").strip()
+		if ("45000" in message or "1644" in message) and ":" in message:
+			return message.split(":")[-1].strip()
+		return message or "Unable to update delivery status."
 
 
 class DeliveryDashboardWindow(QMainWindow):
