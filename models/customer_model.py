@@ -22,6 +22,7 @@ class CustomerModel:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
             active_value = 0 if archived else 1
+            # Database view: vw_customer_summary adds delivery counts and last-delivery display fields.
             cursor.execute(f"""
                 SELECT {CustomerModel.CUSTOMER_SUMMARY_COLUMNS}
                 FROM vw_customer_summary v
@@ -43,6 +44,7 @@ class CustomerModel:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
             active_value = 0 if archived else 1
+            # Database view: vw_customer_summary provides customer profile plus delivery summary fields.
             cursor.execute(f"""
                 SELECT {CustomerModel.CUSTOMER_SUMMARY_COLUMNS}
                 FROM vw_customer_summary
@@ -65,6 +67,7 @@ class CustomerModel:
             cursor = conn.cursor(dictionary=True)
             term = f"%{keyword.lower()}%"
             active_value = 0 if archived else 1
+            # Database view: vw_customer_summary keeps search aligned with customer summary rows.
             cursor.execute(f"""
                 SELECT {CustomerModel.CUSTOMER_SUMMARY_COLUMNS}
                 FROM vw_customer_summary
@@ -91,6 +94,7 @@ class CustomerModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Database view: vw_customer_summary supplies active customer dropdown details.
             cursor.execute("""
                 SELECT
                     id,
@@ -115,6 +119,7 @@ class CustomerModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Database view: vw_customer_summary supplies customer dropdown labels and last-order metadata.
             cursor.execute("""
                 SELECT
                     id,
@@ -141,6 +146,7 @@ class CustomerModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: validates customer details and creates the customer record.
             cursor.callproc("sp_add_customer", [full_name, address, contact_number, notes or ""])
             new_id = None
             for result in cursor.stored_results():
@@ -170,6 +176,7 @@ class CustomerModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: validates and updates an existing customer record.
             cursor.callproc("sp_update_customer", [customer_id, full_name, address, contact_number, notes or ""])
             conn.commit()
             return True
@@ -194,6 +201,7 @@ class CustomerModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: marks a customer inactive while keeping delivery history.
             cursor.callproc("sp_archive_customer", [customer_id])
             conn.commit()
             return True
@@ -218,6 +226,7 @@ class CustomerModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: restores a previously archived customer record.
             cursor.callproc("sp_restore_customer", [customer_id])
             conn.commit()
             return True
@@ -242,6 +251,7 @@ class CustomerModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: permanently deletes a customer only when no delivery history exists.
             cursor.callproc("sp_delete_customer", [customer_id])
             conn.commit()
             return True

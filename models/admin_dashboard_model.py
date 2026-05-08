@@ -4,6 +4,7 @@ from database.connection import get_connection
 class AdminDashboardModel:
     @staticmethod
     def _fetch_kpi_counts(cursor):
+        # Database view: vw_dashboard_today aggregates today's delivery KPI counts.
         cursor.execute("""
             SELECT
                 total_today,
@@ -42,6 +43,7 @@ class AdminDashboardModel:
 
     @staticmethod
     def _fetch_todays_deliveries(cursor):
+        # Database view: vw_delivery_details joins deliveries with saved customer/user details.
         cursor.execute("""
             SELECT
                 vd.delivery_id                                          AS id,

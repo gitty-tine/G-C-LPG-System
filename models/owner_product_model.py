@@ -272,6 +272,7 @@ class OwnerProductModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: validates and creates an LPG product catalog record.
             cursor.callproc(
                 "sp_add_product",
                 [
@@ -307,6 +308,7 @@ class OwnerProductModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: validates and updates an LPG product catalog record.
             cursor.callproc(
                 "sp_update_product",
                 [
@@ -338,6 +340,7 @@ class OwnerProductModel:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: archives a product while preserving delivery history.
             cursor.callproc("sp_archive_product", [product_id])
             conn.commit()
             return True
@@ -356,6 +359,7 @@ class OwnerProductModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: permanently deletes a product only when no delivery items reference it.
             cursor.callproc("sp_delete_product", [product_id])
             conn.commit()
             return True
@@ -374,6 +378,7 @@ class OwnerProductModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: restores a previously archived product record.
             cursor.callproc("sp_restore_product", [product_id])
             conn.commit()
             return True

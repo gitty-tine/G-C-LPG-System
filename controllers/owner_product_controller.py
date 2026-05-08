@@ -20,6 +20,7 @@ class OwnerProductController(QObject):
     Controller for owner product management.
     Bridges OwnerProductsView <-> OwnerProductModel with simple CRUD + search.
     """
+    DUPLICATE_PRODUCT_MESSAGE = "A product with this name and cylinder size already exists."
 
     def __init__(self, view=None):
         super().__init__()
@@ -98,17 +99,17 @@ class OwnerProductController(QObject):
         lowered = raw_message.lower()
         cleaned = re.sub(r"^\d+\s*\([^)]+\)\s*:\s*", "", raw_message).strip()
 
-        if "product with this name already exists" in lowered or "name already exists" in lowered:
-            return {"name": "Product already exists."}
-
         if "same name and size" in lowered or "name and cylinder size" in lowered:
-            return {"name": "Product already exists."}
+            return {"name": OwnerProductController.DUPLICATE_PRODUCT_MESSAGE}
+
+        if "product with this name already exists" in lowered or "name already exists" in lowered:
+            return {"name": OwnerProductController.DUPLICATE_PRODUCT_MESSAGE}
 
         if "product is already active" in lowered:
             return {"form": "This product is already active."}
 
         if "already active" in lowered or "already exists" in lowered:
-            return {"name": "Product already exists."}
+            return {"name": OwnerProductController.DUPLICATE_PRODUCT_MESSAGE}
 
         if "product with id" in lowered and "not found" in lowered:
             return {"form": "This product could not be found anymore. Please refresh and try again."}
@@ -156,9 +157,9 @@ class OwnerProductController(QObject):
                     exclude_id=product_id,
                 )
                 if exists:
-                    errors["name"] = "A product with this name already exists."
+                    errors["name"] = OwnerProductController.DUPLICATE_PRODUCT_MESSAGE
             elif OwnerProductModel.exists(normalized["name"], normalized["cylinder_size"]):
-                errors["name"] = "A product with this name already exists."
+                errors["name"] = OwnerProductController.DUPLICATE_PRODUCT_MESSAGE
 
         return normalized, errors
 

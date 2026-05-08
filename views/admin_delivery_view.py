@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
 	QDateEdit,
 	QCalendarWidget,
 	QComboBox,
+	QCompleter,
 	QTextEdit,
 	QToolButton,
 	QMenu,
@@ -1122,12 +1123,16 @@ class NewDeliveryModal(QWidget):
 		b_lay.setContentsMargins(24, 20, 24, 20)
 		b_lay.setSpacing(6)
 
-		top_fields = QHBoxLayout()
-		top_fields.setSpacing(12)
+		top_fields = QGridLayout()
+		top_fields.setContentsMargins(0, 0, 0, 0)
+		top_fields.setHorizontalSpacing(12)
+		top_fields.setVerticalSpacing(12)
 
 		self.customer_combo = QComboBox()
 		self.customer_combo.setFont(inter(12))
-		self._fill_customers()
+		self.customer_combo.setEditable(True)
+		self.customer_combo.setInsertPolicy(QComboBox.NoInsert)
+		self.customer_combo.setMaxVisibleItems(12)
 		self.customer_combo.setStyleSheet(
 			f"""
 			QComboBox {{
@@ -1137,6 +1142,12 @@ class NewDeliveryModal(QWidget):
 			}}
 			QComboBox:hover {{ border-color:#b9d4cf; }}
 			QComboBox:focus {{ border-color:{TEAL}; }}
+			QComboBox QLineEdit {{
+				color:{GRAY_5};
+				background:transparent;
+				border:none;
+				padding:0;
+			}}
 			QComboBox::drop-down {{
 				subcontrol-origin: padding;
 				subcontrol-position: top right;
@@ -1159,6 +1170,37 @@ class NewDeliveryModal(QWidget):
 			}}
 			"""
 		)
+		if self.customer_combo.lineEdit() is not None:
+			self.customer_combo.lineEdit().setPlaceholderText("Select customer name...")
+			self.customer_combo.lineEdit().setClearButtonEnabled(False)
+			self.customer_combo.lineEdit().textEdited.connect(self._handle_customer_text_edited)
+			self.customer_combo.lineEdit().editingFinished.connect(self._sync_customer_text_to_selection)
+		self.customer_combo.currentIndexChanged.connect(self._update_customer_details)
+
+		self.customer_clear_btn = QPushButton("Clear")
+		self.customer_clear_btn.setCursor(Qt.PointingHandCursor)
+		self.customer_clear_btn.setFont(inter(11, QFont.Medium))
+		self.customer_clear_btn.setFixedHeight(36)
+		self.customer_clear_btn.setMinimumWidth(82)
+		self.customer_clear_btn.setStyleSheet(
+			f"""
+			QPushButton {{
+				color:{TEAL_DARK};background:{TEAL_PALE};
+				border:1px solid #b9dcd7;border-radius:9px;padding:0 14px;
+			}}
+			QPushButton:hover {{ background:#e0f2ef;border-color:{TEAL}; }}
+			QPushButton:disabled {{ color:{GRAY_4};background:{GRAY_1};border-color:{GRAY_2}; }}
+			"""
+		)
+		self.customer_clear_btn.clicked.connect(self._clear_customer_selection)
+
+		customer_picker = QWidget()
+		customer_picker.setStyleSheet("background:transparent;border:none;")
+		customer_picker_lay = QHBoxLayout(customer_picker)
+		customer_picker_lay.setContentsMargins(0, 0, 0, 0)
+		customer_picker_lay.setSpacing(8)
+		customer_picker_lay.addWidget(self.customer_combo, 1)
+		customer_picker_lay.addWidget(self.customer_clear_btn)
 
 		self.schedule_date = QDateEdit()
 		self.schedule_date.setCalendarPopup(True)
@@ -1188,8 +1230,16 @@ class NewDeliveryModal(QWidget):
 
 			_attach_year_dropdown(calendar)
 
-		top_fields.addWidget(make_field("Customer", self.customer_combo, required=True), 1)
-		top_fields.addWidget(make_field("Schedule Date", self.schedule_date, required=True), 1)
+		self.customer_contact = self._readonly_line("Auto-filled contact number")
+		self.customer_address = self._readonly_line("Auto-filled address")
+		self._fill_customers()
+
+		top_fields.addWidget(make_field("Customer", customer_picker, required=True), 0, 0)
+		top_fields.addWidget(make_field("Schedule Date", self.schedule_date, required=True), 0, 1)
+		top_fields.addWidget(make_field("Contact Number", self.customer_contact, required=False), 1, 0)
+		top_fields.addWidget(make_field("Address", self.customer_address, required=False), 1, 1)
+		top_fields.setColumnStretch(0, 1)
+		top_fields.setColumnStretch(1, 1)
 		b_lay.addLayout(top_fields)
 
 		items_header = QHBoxLayout()
@@ -1333,7 +1383,124 @@ class NewDeliveryModal(QWidget):
 			"id": customer_id,
 			"name": delivery.get("customer_name") or "Selected customer",
 			"contact": delivery.get("contact") or "",
+			"address": delivery.get("address") or "",
 		})
+
+	def _readonly_line(self, placeholder=""):
+		field = QLineEdit()
+		field.setReadOnly(True)
+		field.setFont(inter(12))
+		field.setMinimumHeight(36)
+		field.setPlaceholderText(placeholder)
+		field.setStyleSheet(
+			f"""
+			QLineEdit {{
+				color:{GRAY_5};background:#f8fbfa;
+				border:1px solid #d6e2df;border-radius:10px;
+				padding:0 12px;
+			}}
+			"""
+		)
+		return field
+
+	def _customer_display_name(self, customer):
+		if not customer:
+			return ""
+		return str(customer.get("name") or customer.get("full_name") or "Unnamed customer").strip()
+
+	def _customer_contact_text(self, customer):
+		if not customer:
+			return ""
+		return str(customer.get("contact") or customer.get("contact_number") or "").strip()
+
+	def _customer_address_text(self, customer):
+		if not customer:
+			return ""
+		return str(customer.get("address") or "").strip()
+
+	def _customer_by_id(self, customer_id):
+		for customer in self._customers:
+			if customer.get("id") == customer_id:
+				return customer
+		return None
+
+	def _find_customer_index_by_name(self, name):
+		wanted = str(name or "").strip().casefold()
+		if not wanted:
+			return -1
+		for idx in range(self.customer_combo.count()):
+			if self.customer_combo.itemText(idx).strip().casefold() == wanted:
+				return idx
+		return -1
+
+	def _set_customer_detail_values(self, customer):
+		if not hasattr(self, "customer_contact") or not hasattr(self, "customer_address"):
+			return
+		contact = self._customer_contact_text(customer)
+		address = self._customer_address_text(customer)
+		self.customer_contact.setText(contact)
+		self.customer_contact.setToolTip(contact)
+		self.customer_contact.setCursorPosition(0)
+		self.customer_address.setText(address)
+		self.customer_address.setToolTip(address)
+		self.customer_address.setCursorPosition(0)
+
+	def _update_customer_details(self):
+		self._set_customer_detail_values(self._customer_by_id(self.customer_combo.currentData()))
+
+	def _select_customer_by_name(self, value):
+		name = value.data() if hasattr(value, "data") else value
+		idx = self._find_customer_index_by_name(name)
+		if idx != -1:
+			self.customer_combo.setCurrentIndex(idx)
+			self._update_customer_details()
+
+	def _sync_customer_text_to_selection(self):
+		idx = self._find_customer_index_by_name(self.customer_combo.currentText())
+		if idx != -1:
+			self.customer_combo.setCurrentIndex(idx)
+			return
+		self._set_customer_detail_values(None)
+
+	def _handle_customer_text_edited(self, text):
+		idx = self._find_customer_index_by_name(text)
+		if idx != -1:
+			self.customer_combo.setCurrentIndex(idx)
+			return
+		self._set_customer_detail_values(None)
+
+	def _refresh_customer_completer(self):
+		completer = QCompleter(self.customer_combo.model(), self.customer_combo)
+		completer.setCaseSensitivity(Qt.CaseInsensitive)
+		completer.setFilterMode(Qt.MatchContains)
+		completer.setCompletionMode(QCompleter.PopupCompletion)
+		completer.activated.connect(self._select_customer_by_name)
+		self.customer_combo.setCompleter(completer)
+
+	def _clear_customer_selection(self):
+		self.customer_combo.blockSignals(True)
+		self.customer_combo.setCurrentIndex(-1)
+		line_edit = self.customer_combo.lineEdit()
+		if line_edit is not None:
+			line_edit.clear()
+			line_edit.setFocus(Qt.OtherFocusReason)
+		self.customer_combo.blockSignals(False)
+		self._set_customer_detail_values(None)
+
+	def _selected_customer_id(self):
+		current_customer = self._customer_by_id(self.customer_combo.currentData())
+		current_text = self.customer_combo.currentText().strip()
+		if (
+			current_customer
+			and self._customer_display_name(current_customer).casefold() == current_text.casefold()
+		):
+			return self.customer_combo.currentData()
+
+		idx = self._find_customer_index_by_name(current_text)
+		if idx != -1:
+			self.customer_combo.setCurrentIndex(idx)
+			return self.customer_combo.itemData(idx)
+		return None
 
 	def _add_row(self, item_data=None):
 		row = DeliveryItemRow(self._products)
@@ -1396,12 +1563,27 @@ class NewDeliveryModal(QWidget):
 		self.customer_combo.blockSignals(True)
 		self.customer_combo.clear()
 		for c in self._customers:
-			self.customer_combo.addItem(f"{c['name']} ({c['contact']})", c["id"])
+			name = self._customer_display_name(c)
+			idx = self.customer_combo.count()
+			self.customer_combo.addItem(name, c.get("id"))
+			details = []
+			contact = self._customer_contact_text(c)
+			address = self._customer_address_text(c)
+			if contact:
+				details.append(f"Contact: {contact}")
+			if address:
+				details.append(f"Address: {address}")
+			if details:
+				self.customer_combo.setItemData(idx, "\n".join(details), Qt.ToolTipRole)
+		selected_idx = -1
 		if current is not None:
 			idx = self.customer_combo.findData(current)
 			if idx != -1:
-				self.customer_combo.setCurrentIndex(idx)
+				selected_idx = idx
+		self.customer_combo.setCurrentIndex(selected_idx)
 		self.customer_combo.blockSignals(False)
+		self._refresh_customer_completer()
+		self._update_customer_details()
 
 	def _update_remove_buttons(self):
 		removable = len(self._rows) > 1
@@ -1461,6 +1643,8 @@ class NewDeliveryModal(QWidget):
 		if customer_idx != -1:
 			self.customer_combo.setCurrentIndex(customer_idx)
 		self.customer_combo.setEnabled(False)
+		self.customer_clear_btn.setEnabled(False)
+		self._update_customer_details()
 
 		schedule_date = self._edit_delivery.get("schedule_date")
 		if isinstance(schedule_date, QDate) and schedule_date.isValid():
@@ -1487,9 +1671,11 @@ class NewDeliveryModal(QWidget):
 		self._subtitle_lbl.setText("Fill in the details to create a new delivery.")
 		self.save_btn.setText("Save Delivery")
 		self.customer_combo.setEnabled(True)
+		self.customer_clear_btn.setEnabled(True)
 		self.error_lbl.hide()
 		self.notes.clear()
-		self.customer_combo.setCurrentIndex(0)
+		self.customer_combo.setCurrentIndex(-1)
+		self._update_customer_details()
 		self.schedule_date.setDate(QDate.currentDate())
 
 		self._set_item_rows([])
@@ -1576,7 +1762,11 @@ class NewDeliveryModal(QWidget):
 			self.error_lbl.show()
 			return
 
-		customer_id = self.customer_combo.currentData()
+		customer_id = self._selected_customer_id()
+		if self._mode != "edit" and customer_id is None:
+			self.error_lbl.setText("Please select a customer from the list.")
+			self.error_lbl.show()
+			return
 		if self._mode == "edit" and self._edit_delivery:
 			customer_id = self._edit_delivery.get("customer_id")
 
@@ -2024,8 +2214,9 @@ class DeliveryDetailsModal(QWidget):
 
 		self._cust_lbl = self._make_field(grid, 0, 0, "Customer")
 		self._contact_lbl = self._make_field(grid, 0, 1, "Contact")
-		self._date_lbl = self._make_field(grid, 1, 0, "Schedule Date")
-		self._notes_lbl = self._make_field(grid, 1, 1, "Notes")
+		self._address_lbl = self._make_field(grid, 1, 0, "Address", column_span=2)
+		self._date_lbl = self._make_field(grid, 2, 0, "Schedule Date")
+		self._notes_lbl = self._make_field(grid, 2, 1, "Notes")
 
 		self.body_lay.addWidget(grid_widget)
 
@@ -2118,7 +2309,7 @@ class DeliveryDetailsModal(QWidget):
 
 		lay.addWidget(body)
 
-	def _make_field(self, grid, row, col, label_text):
+	def _make_field(self, grid, row, col, label_text, column_span=1):
 		container = QWidget()
 		container.setStyleSheet("background:transparent;border:none;")
 		v = QVBoxLayout(container)
@@ -2136,7 +2327,7 @@ class DeliveryDetailsModal(QWidget):
 
 		v.addWidget(lbl)
 		v.addWidget(val)
-		grid.addWidget(container, row, col)
+		grid.addWidget(container, row, col, 1, column_span)
 		return val
 
 	def _item_header_label(self, text, alignment=Qt.AlignLeft | Qt.AlignVCenter):
@@ -2218,6 +2409,7 @@ class DeliveryDetailsModal(QWidget):
 		)
 		self._cust_lbl.setText(delivery.get("customer_name") or "-")
 		self._contact_lbl.setText(delivery.get("contact") or "-")
+		self._address_lbl.setText(delivery.get("address") or "-")
 		self._date_lbl.setText(date_text)
 		self._notes_lbl.setText(delivery.get("notes") or "-")
 
@@ -2492,7 +2684,7 @@ class DeliveryStatusDelegate(QStyledItemDelegate):
 	def sizeHint(self, option, index):
 		return QSize(132, 78)
 
-# --- Ghost Update Button ---
+# --- Row action buttons ---
 class DeliveryActionDelegate(QStyledItemDelegate):
 	def __init__(self, table, page):
 		super().__init__(table)
@@ -2540,8 +2732,8 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 		btn_h = 34
 		top = row_rect.center().y() - btn_h // 2
 		if self._is_pending_row(index):
-			edit_w = 56
-			update_w = 76
+			edit_w = 52
+			update_w = 118
 			gap = 6
 			total_w = edit_w + gap + update_w
 			left = row_rect.center().x() - total_w // 2
@@ -2550,7 +2742,7 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 				"status": QRect(left + edit_w + gap, top, update_w, btn_h),
 			}
 
-		btn_w = min(118, max(88, row_rect.width() - 24))
+		btn_w = min(142, max(118, row_rect.width() - 24))
 		return {
 			"status": QRect(
 				row_rect.center().x() - btn_w // 2,
@@ -2581,12 +2773,12 @@ class DeliveryActionDelegate(QStyledItemDelegate):
 		rects = self._button_rects(option, index)
 		if "edit" in rects:
 			self._draw_button(painter, rects["edit"], "Edit", is_hovered)
-		self._draw_button(painter, rects["status"], "Update", is_hovered)
+		self._draw_button(painter, rects["status"], "Update Status", is_hovered)
 
 		painter.restore()
 
 	def sizeHint(self, option, index):
-		return QSize(174, 78)
+		return QSize(190, 78)
 
 	def editorEvent(self, event, model, option, index):
 		from PySide6.QtCore import QEvent
@@ -2942,7 +3134,7 @@ class DeliveryView(QWidget):
 		header.resizeSection(1, 150)
 		header.resizeSection(3, 138)
 		header.resizeSection(4, 132)
-		header.resizeSection(5, 174)
+		header.resizeSection(5, 190)
 
 		self._table.setStyleSheet(
 			f"""
@@ -3160,7 +3352,7 @@ class DeliveryView(QWidget):
 		for c in self._customers:
 			if c["id"] == customer_id:
 				return c
-		return {"id": customer_id, "name": "Unknown", "contact": ""}
+		return {"id": customer_id, "name": "Unknown", "contact": "", "address": ""}
 
 	def _find_product(self, product_id):
 		for p in self._products:
@@ -3213,6 +3405,7 @@ class DeliveryView(QWidget):
 				"customer_id": row.get("customer_id"),
 				"customer_name": row.get("customer_name", ""),
 				"contact": row.get("contact", ""),
+				"address": row.get("address", ""),
 				"schedule_date": qdate,
 				"items": [],
 				"items_loaded": False,

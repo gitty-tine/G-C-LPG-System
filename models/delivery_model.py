@@ -15,6 +15,7 @@ class DeliveryModel:
         try:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Database view: vw_delivery_details provides delivery rows with customer/user display fields.
             cursor.execute("""
                 SELECT
                     vd.delivery_id                                          AS id,
@@ -87,6 +88,7 @@ class DeliveryModel:
         try:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Database view: vw_delivery_items_details expands delivery items with product names and subtotals.
             cursor.execute("""
                 SELECT
                     vid.item_id,
@@ -202,6 +204,7 @@ class DeliveryModel:
             if any(product_id not in active_ids for product_id in product_ids):
                 raise ValueError("One or more selected products are no longer active. Please refresh the product list.")
 
+            # Stored procedure: creates the delivery header after customer/user/date validation.
             cursor.callproc("sp_create_delivery", [
                 customer_id,
                 user_id,
@@ -494,6 +497,7 @@ class DeliveryModel:
     @staticmethod
     def _call_update_pending_delivery(cursor, delivery_id, user_id, schedule_date, notes):
         try:
+            # Stored procedure: updates schedule and notes while the delivery is still pending.
             cursor.callproc("sp_update_pending_delivery", [
                 delivery_id,
                 user_id,
@@ -727,6 +731,7 @@ class DeliveryModel:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
 
+            # Stored procedure: validates and applies the delivery status transition.
             cursor.callproc("sp_update_delivery_status", [
                 delivery_id,
                 new_status,

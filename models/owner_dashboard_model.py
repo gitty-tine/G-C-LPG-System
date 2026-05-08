@@ -72,6 +72,7 @@ class OwnerDashboardModel:
         range_start = min(today, week_start, month_start, previous_month_start)
         range_end = max(today, week_end, month_end, previous_month_end)
 
+        # Database view: vw_owner_dashboard_daily pre-aggregates owner sales and receivable KPIs by day.
         cursor.execute("""
             SELECT
                 ROUND(today_sales, 2)                                  AS total_sales_today,
@@ -130,6 +131,7 @@ class OwnerDashboardModel:
     @staticmethod
     def _fetch_delivery_counts_today(cursor, today=None):
         today = today or OwnerDashboardModel._today()
+        # Database view: vw_owner_dashboard_daily provides status counts for today's owner dashboard.
         cursor.execute("""
             SELECT
                 COALESCE(SUM(total_deliveries), 0)                         AS total_today,
@@ -164,6 +166,7 @@ class OwnerDashboardModel:
     @staticmethod
     def _fetch_weekly_chart_data(cursor, week_start=None):
         week_start = week_start or OwnerDashboardModel._week_bounds()[0]
+        # Database view: vw_owner_dashboard_daily fills weekly chart sales by calendar day.
         cursor.execute("""
             SELECT
                 cal.day_label,
@@ -198,6 +201,7 @@ class OwnerDashboardModel:
         if month_start is None or month_end is None:
             month_start, month_end = OwnerDashboardModel._month_bounds()
 
+        # Database view: vw_report_delivery_financials ranks customers by recognized delivered sales.
         cursor.execute("""
             SELECT
                 customer_id,
@@ -227,6 +231,7 @@ class OwnerDashboardModel:
 
     @staticmethod
     def _fetch_recent_transactions(cursor, limit=5):
+        # Database view: vw_transaction_summary supplies recent transaction customer/delivery labels.
         cursor.execute("""
             SELECT
                 t.id                                                        AS transaction_id,

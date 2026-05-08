@@ -15,7 +15,8 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QLabel, QPushButton, QFrame, QScrollArea, QSizePolicy,
     QLineEdit,
-    QGraphicsDropShadowEffect, QStackedWidget, QMessageBox, QToolButton
+    QGraphicsDropShadowEffect, QStackedWidget, QMessageBox, QToolButton,
+    QLayout,
 )
 from controllers.account_controller import AccountController
 from controllers.login_controller import LoginController
@@ -568,6 +569,11 @@ class NotificationDropdown(QFrame):
         self._notifications = []
         self._on_mark_all = on_mark_all
         self._on_item_clicked = on_item_clicked
+        self._header_height = 61
+        self._min_scroll_height = 180
+        self._max_scroll_height = 560
+        self._row_height_estimate = 110
+        self._last_anchor = None
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("notificationDropdown")
@@ -633,6 +639,7 @@ class NotificationDropdown(QFrame):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._scroll.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
         self._scroll.setStyleSheet(owner_scrollbar_qss())
 
         self._list_widget = QWidget()
@@ -640,6 +647,7 @@ class NotificationDropdown(QFrame):
         self._list_lay = QVBoxLayout(self._list_widget)
         self._list_lay.setContentsMargins(12, 12, 12, 12)
         self._list_lay.setSpacing(8)
+        self._list_lay.setSizeConstraint(QLayout.SetMinAndMaxSize)
         self._scroll.setWidget(self._list_widget)
         root.addWidget(self._scroll)
 
@@ -652,10 +660,34 @@ class NotificationDropdown(QFrame):
             if item.widget():
                 item.widget().deleteLater()
 
+    def _target_scroll_height(self):
+        self._list_lay.activate()
+        self._list_widget.updateGeometry()
+        self._list_widget.adjustSize()
+
+        hint_height = self._list_widget.sizeHint().height()
+        margins = self._list_lay.contentsMargins()
+        count = max(len(self._notifications), 1)
+        estimated_height = (
+            margins.top()
+            + margins.bottom()
+            + (count * self._row_height_estimate)
+            + (max(count - 1, 0) * self._list_lay.spacing())
+        )
+        content_height = max(hint_height, estimated_height)
+        return max(self._min_scroll_height, min(content_height, self._max_scroll_height))
+
+    def _set_scroll_height(self, scroll_height):
+        self._scroll.setFixedHeight(scroll_height)
+        self.setFixedHeight(self._header_height + scroll_height)
+
     def set_notifications(self, notifications):
+        was_visible = self.isVisible()
+        previous_scroll_height = self._scroll.height() if was_visible else 0
         self._notifications = list(notifications or [])
         unread = sum(1 for item in self._notifications if not item.get("is_read"))
-        self._count_lbl.setText(f"{unread} unread")
+        total = len(self._notifications)
+        self._count_lbl.setText(f"{unread} unread / {total} total" if total else "0 unread")
         self._mark_all_btn.setEnabled(unread > 0)
         self._clear_items()
 
@@ -674,10 +706,30 @@ class NotificationDropdown(QFrame):
                 )
             self._list_lay.addStretch()
 
-        visible_rows = min(max(len(self._notifications), 1), 5)
-        scroll_height = 72 + (visible_rows * 110)
-        self._scroll.setFixedHeight(scroll_height)
-        self.setFixedHeight(61 + scroll_height)
+        scroll_height = self._target_scroll_height()
+        if was_visible and previous_scroll_height > 0:
+            scroll_height = max(scroll_height, previous_scroll_height)
+        self._set_scroll_height(scroll_height)
+
+        if was_visible and self._last_anchor is not None:
+            self._fit_height_for_anchor(self._last_anchor)
+            self.move(self._position_for_anchor(self._last_anchor))
+
+    def _fit_height_for_anchor(self, anchor, margin=8):
+        screen = QApplication.screenAt(anchor.mapToGlobal(QPoint(0, anchor.height())))
+        if screen is None and anchor.window() is not None:
+            screen = anchor.window().screen()
+        if screen is None:
+            screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+
+        max_height = max(self._header_height + self._min_scroll_height, screen.availableGeometry().height() - (margin * 2))
+        if self.height() <= max_height:
+            return
+
+        scroll_height = max(self._min_scroll_height, max_height - self._header_height)
+        self._set_scroll_height(scroll_height)
 
     def _position_for_anchor(self, anchor, gap=8, margin=8):
         self.adjustSize()
@@ -710,6 +762,8 @@ class NotificationDropdown(QFrame):
         return QPoint(x, y)
 
     def show_for(self, anchor):
+        self._last_anchor = anchor
+        self._fit_height_for_anchor(anchor)
         self.move(self._position_for_anchor(anchor))
         self.show()
         self.raise_()

@@ -2,6 +2,8 @@ from database.connection import get_connection
 
 
 class NotificationModel:
+    READ_LOOKUP_CHUNK_SIZE = 400
+
     TABLE_LABELS = {
         "customers": "Customer",
         "deliveries": "Delivery",
@@ -40,6 +42,16 @@ class NotificationModel:
             return f"PHP {float(value or 0):,.2f}"
         except (TypeError, ValueError):
             return "PHP 0.00"
+
+    @staticmethod
+    def _coerce_limit(limit):
+        if limit is None:
+            return None
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            return None
+        return limit if limit > 0 else None
 
     @staticmethod
     def _evaluation_stamp(cursor):
@@ -346,14 +358,14 @@ class NotificationModel:
         return f"{actor} {verb} {label}{ref}."
 
     @staticmethod
-    def _fetch_recent_activity(cursor, role=None, limit=6):
+    def _fetch_recent_activity(cursor, role=None, limit=None):
         role_key = str(role or "").strip().lower()
         allowed_tables = NotificationModel.ROLE_AUDIT_TABLES.get(
             role_key,
             NotificationModel.DEFAULT_AUDIT_TABLES,
         )
         placeholders = ", ".join(["%s"] * len(allowed_tables))
-        cursor.execute(f"""
+        query = f"""
             SELECT
                 a.id,
                 a.action,
@@ -368,8 +380,13 @@ class NotificationModel:
             LEFT JOIN users u ON u.id = a.user_id
             WHERE LOWER(a.table_name) IN ({placeholders})
             ORDER BY a.changed_at DESC, a.id DESC
-            LIMIT %s
-        """, tuple(list(allowed_tables) + [limit]))
+        """
+        params = list(allowed_tables)
+        limit = NotificationModel._coerce_limit(limit)
+        if limit is not None:
+            query += "\n            LIMIT %s"
+            params.append(limit)
+        cursor.execute(query, tuple(params))
 
         notifications = []
         for row in cursor.fetchall():
@@ -396,20 +413,26 @@ class NotificationModel:
         if not keys:
             return {}
 
-        placeholders = ", ".join(["%s"] * len(keys))
-        cursor.execute(f"""
-            SELECT
-                notification_key,
-                read_at,
-                DATE_FORMAT(read_at, '%b %d, %Y %h:%i %p') AS read_at_fmt
-            FROM notification_reads
-            WHERE user_id = %s
-              AND notification_key IN ({placeholders})
-        """, tuple([user_id] + keys))
-        return {row["notification_key"]: row for row in cursor.fetchall()}
+        read_rows = {}
+        keys = [key for key in dict.fromkeys(keys) if key]
+        chunk_size = NotificationModel.READ_LOOKUP_CHUNK_SIZE
+        for start in range(0, len(keys), chunk_size):
+            chunk = keys[start:start + chunk_size]
+            placeholders = ", ".join(["%s"] * len(chunk))
+            cursor.execute(f"""
+                SELECT
+                    notification_key,
+                    read_at,
+                    DATE_FORMAT(read_at, '%b %d, %Y %h:%i %p') AS read_at_fmt
+                FROM notification_reads
+                WHERE user_id = %s
+                  AND notification_key IN ({placeholders})
+            """, tuple([user_id] + chunk))
+            read_rows.update({row["notification_key"]: row for row in cursor.fetchall()})
+        return read_rows
 
     @staticmethod
-    def get_for_user(user_id, role=None, limit=12):
+    def get_for_user(user_id, role=None, limit=None):
         conn = None
         cursor = None
         try:
@@ -423,7 +446,7 @@ class NotificationModel:
                 NotificationModel._fetch_unpaid_transaction_alert(cursor, evaluated_at, evaluated_at_fmt),
             ]
             notifications = [item for item in notifications if item]
-            notifications.extend(NotificationModel._fetch_recent_activity(cursor, role=role, limit=6))
+            notifications.extend(NotificationModel._fetch_recent_activity(cursor, role=role))
 
             keys = [item["key"] for item in notifications]
             read_map = NotificationModel._read_map(cursor, user_id, keys)
@@ -449,7 +472,10 @@ class NotificationModel:
                     -_created_ts(item),
                 )
             )
-            return notifications[:limit]
+            limit = NotificationModel._coerce_limit(limit)
+            if limit is not None:
+                return notifications[:limit]
+            return notifications
         finally:
             if cursor:
                 cursor.close()

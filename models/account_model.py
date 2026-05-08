@@ -39,6 +39,7 @@ class AccountModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: validates and updates the logged-in user's profile details.
             cursor.callproc(
                 "sp_update_user_profile",
                 [user_id, full_name, username, email or None]
@@ -81,6 +82,7 @@ class AccountModel:
             conn = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: validates and stores a new password hash for the user.
             cursor.callproc("sp_change_user_password", [user_id, hashed])
             conn.commit()
             return True

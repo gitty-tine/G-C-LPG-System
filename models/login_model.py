@@ -74,6 +74,7 @@ class LoginModel:
         try:
             conn = get_connection()
             cursor = conn.cursor()
+            # Stored procedure: saves the password-reset code and expiration timestamp.
             cursor.callproc("sp_save_reset_code", [user_id, code])
             conn.commit()
         except Exception:
@@ -123,6 +124,7 @@ class LoginModel:
             ).decode("utf-8")
             conn = get_connection()
             cursor = conn.cursor()
+            # Stored procedure: validates and stores a new password hash for the user.
             cursor.callproc("sp_change_user_password", [user_id, hashed])
             conn.commit()
         except Exception:

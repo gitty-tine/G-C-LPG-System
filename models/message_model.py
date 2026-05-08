@@ -51,20 +51,6 @@ class MessageModel:
         }
 
     @staticmethod
-    def _is_staff_user(cursor, user_id):
-        cursor.execute(
-            f"""
-            SELECT id
-            FROM users
-            WHERE id = %s
-              AND {MessageModel.STAFF_ROLE_SQL}
-            LIMIT 1
-            """,
-            (user_id,),
-        )
-        return cursor.fetchone() is not None
-
-    @staticmethod
     def get_unread_count(user_id):
         conn = None
         cursor = None
@@ -242,17 +228,10 @@ class MessageModel:
         try:
             conn = get_connection()
             cursor = conn.cursor()
-            cursor.execute(
-                """
-                UPDATE internal_messages
-                SET read_at = NOW(),
-                    updated_at = NOW()
-                WHERE sender_id = %s
-                  AND receiver_id = %s
-                  AND read_at IS NULL
-                """,
-                (other_user_id, user_id),
-            )
+            # Stored procedure: validates conversation users and marks unread thread messages as read.
+            cursor.callproc("sp_mark_internal_thread_read", [user_id, other_user_id])
+            for result in cursor.stored_results():
+                result.fetchall()
             conn.commit()
             return True
         except Exception:
@@ -279,19 +258,14 @@ class MessageModel:
         cursor = None
         try:
             conn = get_connection()
-            cursor = conn.cursor()
-            if not MessageModel._is_staff_user(cursor, sender_id):
-                raise ValueError("Only owners and admins can send messages.")
-            if not MessageModel._is_staff_user(cursor, receiver_id):
-                raise ValueError("That staff account is no longer available.")
-            cursor.execute(
-                """
-                INSERT INTO internal_messages (sender_id, receiver_id, body)
-                VALUES (%s, %s, %s)
-                """,
-                (sender_id, receiver_id, body),
-            )
-            message_id = cursor.lastrowid
+            cursor = conn.cursor(dictionary=True)
+            # Stored procedure: validates staff sender/receiver and creates the internal message.
+            cursor.callproc("sp_send_internal_message", [sender_id, receiver_id, body])
+            message_id = 0
+            for result in cursor.stored_results():
+                row = result.fetchone()
+                if row:
+                    message_id = int(row.get("new_message_id") or 0)
             conn.commit()
             return int(message_id or 0)
         except Exception:

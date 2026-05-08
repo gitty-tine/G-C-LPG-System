@@ -10,6 +10,7 @@ class TransactionModel:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
 
+            # Database view: vw_transaction_summary joins transactions to delivery/customer summary fields.
             base_query = """
                 SELECT
                     vt.transaction_id,
@@ -82,6 +83,7 @@ class TransactionModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Database view: vw_transaction_summary returns transaction details for a delivery.
             cursor.execute(
                 """
                 SELECT
@@ -186,6 +188,7 @@ class TransactionModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Database view: vw_transaction_summary supplies ordered transaction rows for running totals.
             cursor.execute(
                 """
                 SELECT
@@ -229,6 +232,7 @@ class TransactionModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Database view: vw_transaction_summary supplies unpaid delivered transaction rows.
             cursor.execute(
                 """
                 SELECT
@@ -320,6 +324,7 @@ class TransactionModel:
             cursor = conn.cursor()
             if user_id:
                 cursor.execute("SET @current_user_id = %s", (user_id,))
+            # Stored procedure: marks the delivery transaction as paid.
             cursor.callproc("sp_mark_payment", [delivery_id])
             conn.commit()
             return True

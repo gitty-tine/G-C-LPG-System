@@ -301,6 +301,7 @@ class ProductModel:
             cursor = conn.cursor()
 
             cursor.execute("SET @current_user_id = 0")
+            # Stored procedure: validates and creates an LPG product catalog record.
             cursor.callproc(
                 "sp_add_product",
                 [
@@ -336,6 +337,7 @@ class ProductModel:
             cursor = conn.cursor()
 
             cursor.execute("SET @current_user_id = 0")
+            # Stored procedure: validates and updates an LPG product catalog record.
             cursor.callproc(
                 "sp_update_product",
                 [
@@ -366,6 +368,7 @@ class ProductModel:
             conn   = get_connection()
             cursor = conn.cursor()
             cursor.execute("SET @current_user_id = 0")
+            # Stored procedure: permanently deletes a product only when no delivery items reference it.
             cursor.callproc("sp_delete_product", [product_id])
             conn.commit()
             return True
