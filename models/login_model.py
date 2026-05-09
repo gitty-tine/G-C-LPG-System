@@ -65,6 +65,7 @@ class LoginModel:
 
     @staticmethod
     def generate_reset_code():
+        # 6-digit numeric code for email reset flow.
         return "".join(random.choices(string.digits, k=6))
 
     @staticmethod
@@ -89,6 +90,7 @@ class LoginModel:
 
     @staticmethod
     def verify_reset_code(email, code):
+        # Verify code match and expiration window.
         conn = None
         cursor = None
         try:
@@ -113,6 +115,7 @@ class LoginModel:
 
     @staticmethod
     def reset_password(user_id, new_plain_password):
+        # Hash and store the new password.
         import bcrypt
 
         conn = None

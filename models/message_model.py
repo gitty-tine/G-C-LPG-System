@@ -2,6 +2,7 @@ from database.connection import get_connection
 
 
 class MessageModel:
+    # SQL fragment to limit threads to staff roles.
     STAFF_ROLE_SQL = "LOWER(COALESCE(role, '')) IN ('admin', 'owner')"
 
     @staticmethod
@@ -23,6 +24,7 @@ class MessageModel:
 
     @staticmethod
     def _normalize_user(row):
+        # Normalize DB row into the UI-friendly shape.
         row = row or {}
         return {
             "user_id": int(row.get("user_id") or row.get("id") or 0),
@@ -57,6 +59,7 @@ class MessageModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Pull each staff user with latest message and unread count.
             cursor.execute(
                 """
                 SELECT COUNT(*) AS total
@@ -181,6 +184,7 @@ class MessageModel:
 
     @staticmethod
     def get_thread(user_id, other_user_id, limit=100):
+        # Fetch most recent N messages, then return oldest-first for display.
         limit = max(1, min(int(limit or 100), 200))
         conn = None
         cursor = None

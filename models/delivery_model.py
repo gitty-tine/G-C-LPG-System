@@ -288,6 +288,7 @@ class DeliveryModel:
 
     @staticmethod
     def _normalize_items(items):
+        # Validate and normalize incoming item rows for DB updates.
         normalized = []
         for item in items or []:
             try:
@@ -327,6 +328,7 @@ class DeliveryModel:
 
     @staticmethod
     def _attach_exact_existing_item_ids(normalized_items, existing_items):
+        # Match new items to existing rows by signature to preserve IDs.
         used_ids = {
             int(item["item_id"])
             for item in normalized_items
@@ -390,6 +392,7 @@ class DeliveryModel:
 
     @staticmethod
     def _items_changed(normalized_items, existing_items):
+        # Detect whether any item rows actually changed.
         existing_by_id = {int(item["item_id"]): item for item in existing_items}
         incoming_ids = []
         for item in normalized_items:
@@ -418,6 +421,7 @@ class DeliveryModel:
 
     @staticmethod
     def _active_product_ids_required(normalized_items, existing_items):
+        # Only revalidate products for rows that changed or are new.
         existing_by_id = {int(item["item_id"]): item for item in existing_items}
         required = set()
         for item in normalized_items:
@@ -435,6 +439,7 @@ class DeliveryModel:
 
     @staticmethod
     def _format_items_for_audit(items):
+        # Build a human-readable snapshot for audit logs.
         if not items:
             return "-"
         parts = []
@@ -458,6 +463,7 @@ class DeliveryModel:
         header_changed,
         items_changed,
     ):
+        # Record delivery edits as a single audit log entry.
         old_parts = []
         new_parts = []
 
@@ -496,6 +502,7 @@ class DeliveryModel:
 
     @staticmethod
     def _call_update_pending_delivery(cursor, delivery_id, user_id, schedule_date, notes):
+        # Fall back to inline UPDATE if stored procedure is unavailable.
         try:
             # Stored procedure: updates schedule and notes while the delivery is still pending.
             cursor.callproc("sp_update_pending_delivery", [
@@ -532,6 +539,7 @@ class DeliveryModel:
             conn   = get_connection()
             cursor = conn.cursor(dictionary=True)
 
+            # Lock delivery rows to prevent concurrent edits.
             conn.start_transaction()
             cursor.execute("SET @current_user_id = %s", (user_id or 0,))
 
@@ -682,6 +690,7 @@ class DeliveryModel:
             final_total = DeliveryModel._items_total(final_items)
 
             if items_changed and old_total != final_total:
+                # Keep unpaid transaction totals aligned with edited items.
                 cursor.execute("""
                     SELECT id, total_amount, payment_status
                     FROM transactions

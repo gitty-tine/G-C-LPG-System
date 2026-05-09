@@ -3,6 +3,7 @@ import bcrypt
 from database.connection import get_connection
 
 
+# Account profile and password operations.
 class AccountModel:
     @staticmethod
     def get_user_by_id(user_id):
@@ -23,6 +24,7 @@ class AccountModel:
 
     @staticmethod
     def verify_password(plain_password, hashed_password):
+        # bcrypt can raise on malformed hashes; treat as invalid.
         try:
             return bcrypt.checkpw(
                 plain_password.encode("utf-8"),
@@ -74,6 +76,7 @@ class AccountModel:
             if not is_valid:
                 raise ValueError(error)
 
+            # Generate a fresh salted hash for the new password.
             hashed = bcrypt.hashpw(
                 new_plain_password.encode("utf-8"),
                 bcrypt.gensalt()

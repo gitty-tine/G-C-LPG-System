@@ -2,6 +2,7 @@ from database.connection import get_connection
 
 
 class CustomerModel:
+    # Shared view column list for customer summary queries.
     CUSTOMER_SUMMARY_COLUMNS = """
         id,
         full_name,
@@ -158,6 +159,7 @@ class CustomerModel:
         except Exception as exc:
             if conn:
                 conn.rollback()
+            # Surface validation errors raised by stored procedures.
             msg = str(exc)
             if "45000" in msg or "1644" in msg:
                 raise ValueError(msg.split(":")[-1].strip())
@@ -183,6 +185,7 @@ class CustomerModel:
         except Exception as exc:
             if conn:
                 conn.rollback()
+            # Surface validation errors raised by stored procedures.
             msg = str(exc)
             if "45000" in msg or "1644" in msg:
                 raise ValueError(msg.split(":")[-1].strip())
@@ -208,6 +211,7 @@ class CustomerModel:
         except Exception as exc:
             if conn:
                 conn.rollback()
+            # Surface validation errors raised by stored procedures.
             msg = str(exc)
             if "45000" in msg or "1644" in msg:
                 raise ValueError(msg.split(":")[-1].strip())
@@ -233,6 +237,7 @@ class CustomerModel:
         except Exception as exc:
             if conn:
                 conn.rollback()
+            # Surface validation errors raised by stored procedures.
             msg = str(exc)
             if "45000" in msg or "1644" in msg:
                 raise ValueError(msg.split(":")[-1].strip())
@@ -258,6 +263,7 @@ class CustomerModel:
         except Exception as exc:
             if conn:
                 conn.rollback()
+            # Surface validation errors raised by stored procedures.
             msg = str(exc)
             if "45000" in msg or "1644" in msg:
                 raise ValueError(msg.split(":")[-1].strip())

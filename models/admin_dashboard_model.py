@@ -14,6 +14,7 @@ class AdminDashboardModel:
         """)
         row = cursor.fetchone()
 
+        # Unpaid delivered totals are not included in vw_dashboard_today.
         cursor.execute("""
             SELECT COUNT(*) AS unpaid_count
             FROM transactions t
@@ -151,6 +152,7 @@ class AdminDashboardModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Reuse one cursor for all dashboard sections.
             return {
                 "kpi_counts": AdminDashboardModel._fetch_kpi_counts(cursor),
                 "todays_deliveries": AdminDashboardModel._fetch_todays_deliveries(cursor),

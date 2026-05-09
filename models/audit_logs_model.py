@@ -3,9 +3,11 @@ import re
 from database.connection import get_connection
 
 
+# Extract "Field: value" labels from audit snapshot strings.
 _AUDIT_FIELD_PATTERN = re.compile(r"(?:(?<=^)|(?<=, ))([A-Za-z][A-Za-z ]{0,40}):\s*")
 
 
+# Preserve field order while removing duplicates.
 def _audit_field_names(*values):
     names = []
     for value in values:
@@ -18,6 +20,7 @@ def _audit_field_names(*values):
     return names
 
 
+# Human-friendly join for audit summaries.
 def _human_join(items):
     if not items:
         return ""
@@ -155,6 +158,7 @@ class AuditLogModel:
 
     @staticmethod
     def _apply_change_summaries(rows):
+        # Replace UPDATE descriptions with changed field lists.
         for row in rows:
             if row.get("raw_action") != "UPDATE":
                 continue

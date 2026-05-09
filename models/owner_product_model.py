@@ -6,6 +6,7 @@ from database.connection import get_connection
 class OwnerProductModel:
     @staticmethod
     def _price(value):
+        # Normalize monetary inputs as Decimal.
         return Decimal(str(value))
 
     @staticmethod
@@ -175,6 +176,7 @@ class OwnerProductModel:
     
     @staticmethod
     def get_revenue_summary():
+        # Rank products by revenue share.
         conn   = None
         cursor = None
         try:
@@ -212,6 +214,7 @@ class OwnerProductModel:
     
     @staticmethod
     def exists(name, cylinder_size, exclude_id=None):
+        # Normalize name/size to prevent duplicates.
         conn   = None
         cursor = None
         try:

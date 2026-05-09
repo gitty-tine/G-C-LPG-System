@@ -58,6 +58,7 @@ class OwnerDashboardModel:
 
     @staticmethod
     def _merge_defaults(defaults, row):
+        # Fill missing KPI fields with defaults.
         merged = defaults.copy()
         if row:
             merged.update(row)
@@ -261,6 +262,7 @@ class OwnerDashboardModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Reuse one cursor for all dashboard sections.
             return {
                 "sales_kpis": OwnerDashboardModel._fetch_sales_kpis(cursor, today=today),
                 "delivery_counts": OwnerDashboardModel._fetch_delivery_counts_today(cursor, today=today),

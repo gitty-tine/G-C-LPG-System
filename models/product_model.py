@@ -6,6 +6,7 @@ from database.connection import get_connection
 class ProductModel:
     @staticmethod
     def _price(value):
+        # Normalize monetary inputs as Decimal.
         return Decimal(str(value))
 
     @staticmethod
@@ -240,6 +241,7 @@ class ProductModel:
     
     @staticmethod
     def exists(name, cylinder_size, exclude_id=None):
+        # Normalize name/size to prevent duplicates.
         conn   = None
         cursor = None
         try:

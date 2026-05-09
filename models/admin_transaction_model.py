@@ -11,6 +11,7 @@ class TransactionModel:
             cursor = conn.cursor(dictionary=True)
 
             # Database view: vw_transaction_summary joins transactions to delivery/customer summary fields.
+            # Build the base query once and optionally apply a date filter.
             base_query = """
                 SELECT
                     vt.transaction_id,
@@ -185,6 +186,7 @@ class TransactionModel:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
             # Database view: vw_transaction_summary supplies ordered transaction rows for running totals.
+            # Window functions compute running totals in SQL.
             cursor.execute(
                 """
                 SELECT
@@ -265,6 +267,7 @@ class TransactionModel:
         try:
             conn = get_connection()
             cursor = conn.cursor(dictionary=True)
+            # Aggregate per-day totals and collection rate for the range.
             cursor.execute(
                 """
                 WITH daily_base AS (

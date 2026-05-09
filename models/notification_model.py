@@ -2,6 +2,7 @@ from database.connection import get_connection
 
 
 class NotificationModel:
+    # Keep IN-clause sizes manageable for read lookups.
     READ_LOOKUP_CHUNK_SIZE = 400
 
     TABLE_LABELS = {
@@ -72,6 +73,7 @@ class NotificationModel:
         context_text=None,
         sort_at=None,
     ):
+        # Shared payload format for summary cards.
         time_text = f"Last evaluated {evaluated_at_fmt}" if evaluated_at_fmt else "Last evaluated"
         return {
             "key": key,
@@ -191,6 +193,7 @@ class NotificationModel:
 
     @staticmethod
     def _snapshot_map(value):
+        # Parse "Key: Value" snapshots stored in audit logs.
         text = str(value or "").strip()
         if not text or text in {"-", "None"}:
             return {}
@@ -303,6 +306,7 @@ class NotificationModel:
 
     @staticmethod
     def _audit_message(row):
+        # Build a readable activity message from audit snapshots.
         table_name = str(row.get("table_name") or "").lower()
         action = str(row.get("action") or "").upper()
         actor = str(row.get("changed_by") or "Someone").strip() or "Someone"
@@ -359,6 +363,7 @@ class NotificationModel:
 
     @staticmethod
     def _fetch_recent_activity(cursor, role=None, limit=None):
+        # Pull recent audit rows scoped by role.
         role_key = str(role or "").strip().lower()
         allowed_tables = NotificationModel.ROLE_AUDIT_TABLES.get(
             role_key,
@@ -410,6 +415,7 @@ class NotificationModel:
 
     @staticmethod
     def _read_map(cursor, user_id, keys):
+        # Batch read statuses to avoid oversized IN clauses.
         if not keys:
             return {}
 
@@ -440,6 +446,7 @@ class NotificationModel:
             cursor = conn.cursor(dictionary=True)
 
             evaluated_at, evaluated_at_fmt = NotificationModel._evaluation_stamp(cursor)
+            # Build summary alerts first, then append audit activity.
             notifications = [
                 NotificationModel._fetch_overdue_delivery_alert(cursor, evaluated_at, evaluated_at_fmt),
                 NotificationModel._fetch_today_delivery_alert(cursor, evaluated_at, evaluated_at_fmt),
@@ -467,6 +474,7 @@ class NotificationModel:
                     return value.toordinal() * 86400
                 return 0
 
+            # Sort unread first, then severity, then summary vs audit, then newest.
             notifications.sort(
                 key=lambda item: (
                     1 if item.get("is_read") else 0,

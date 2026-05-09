@@ -6,6 +6,7 @@ from database.connection import get_connection
 class ReportModel:
     @staticmethod
     def _month_start(day_value):
+        # Coerce input to first day of month.
         if isinstance(day_value, datetime):
             day_value = day_value.date()
         elif not hasattr(day_value, "year"):
@@ -207,6 +208,7 @@ class ReportModel:
     
     @staticmethod
     def get_report_insights(date_from, date_to):
+        # Provide defaults when no insights are returned.
         defaults = {
             "peak_sales_day": "",
             "peak_sales_amount": 0,
