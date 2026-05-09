@@ -2,16 +2,6 @@ import re
 
 
 def validate_password_strength(password):
-    """
-    Returns (is_valid, error_message).
-    Rules:
-    - Not empty or only spaces
-    - At least 8 characters
-    - At least 1 uppercase letter
-    - At least 1 lowercase letter
-    - At least 1 number
-    - At least 1 special character
-    """
     password = password or ""
 
     if not password.strip():
@@ -30,13 +20,6 @@ def validate_password_strength(password):
 
 
 def validate_email(email):
-    """
-    Returns (is_valid, error_message).
-    Rules:
-    - Not empty
-    - No spaces
-    - Valid format using regex
-    """
     email = email or ""
 
     if not email:

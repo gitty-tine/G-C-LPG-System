@@ -39,7 +39,6 @@ CREATE TABLE IF NOT EXISTS error_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci
 """
 
-# Database view: vw_error_logs enriches error log rows with user display metadata.
 CREATE_ERROR_LOGS_VIEW_SQL = """
 CREATE OR REPLACE VIEW vw_error_logs AS
 SELECT

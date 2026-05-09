@@ -4,10 +4,6 @@ from utils.error_logger import log_exception
 
 
 def clean_db_error(error):
-    """
-    Converts raw MySQL/DB errors into user-friendly messages.
-    Strips error codes like '1644 (45000):' from SIGNAL messages.
-    """
     log_exception(
         error,
         source="database",
