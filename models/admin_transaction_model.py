@@ -105,11 +105,7 @@ class TransactionModel:
                         FROM delivery_items di
                         WHERE di.delivery_id = t.delivery_id
                     )                                                       AS item_count,
-                    (
-                        SELECT COALESCE(SUM(di2.quantity * di2.price_at_delivery), 0)
-                        FROM delivery_items di2
-                        WHERE di2.delivery_id = t.delivery_id
-                    )                                                       AS computed_total
+                    fn_delivery_total(t.delivery_id)                       AS computed_total
                 FROM vw_transaction_summary vt
                 INNER JOIN transactions t ON t.id = vt.transaction_id
                 WHERE t.delivery_id = %s

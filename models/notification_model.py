@@ -446,7 +446,10 @@ class NotificationModel:
                 NotificationModel._fetch_unpaid_transaction_alert(cursor, evaluated_at, evaluated_at_fmt),
             ]
             notifications = [item for item in notifications if item]
-            notifications.extend(NotificationModel._fetch_recent_activity(cursor, role=role))
+            limit = NotificationModel._coerce_limit(limit)
+            notifications.extend(
+                NotificationModel._fetch_recent_activity(cursor, role=role, limit=limit)
+            )
 
             keys = [item["key"] for item in notifications]
             read_map = NotificationModel._read_map(cursor, user_id, keys)
@@ -472,7 +475,6 @@ class NotificationModel:
                     -_created_ts(item),
                 )
             )
-            limit = NotificationModel._coerce_limit(limit)
             if limit is not None:
                 return notifications[:limit]
             return notifications

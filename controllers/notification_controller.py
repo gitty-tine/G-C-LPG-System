@@ -53,6 +53,8 @@ def notify_notifications_changed(reason="data_changed"):
 
 
 class NotificationController:
+    DEFAULT_NOTIFICATION_LIMIT = 80
+
     def __init__(self, user=None):
         self._user = user or LoginController.get_current_user() or {}
 
@@ -65,11 +67,13 @@ class NotificationController:
     def _role(self):
         return str((self._user or {}).get("role") or "").strip().lower()
 
-    def list_notifications(self):
+    def list_notifications(self, limit=None):
         try:
+            effective_limit = self.DEFAULT_NOTIFICATION_LIMIT if limit is None else limit
             notifications = NotificationModel.get_for_user(
                 self._user_id(),
                 role=self._role(),
+                limit=effective_limit,
             )
             return True, notifications
         except Exception as exc:

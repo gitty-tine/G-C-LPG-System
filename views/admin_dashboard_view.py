@@ -573,6 +573,8 @@ class NotificationDropdown(QFrame):
         self._min_scroll_height = 180
         self._max_scroll_height = 560
         self._row_height_estimate = 110
+        self._max_rendered_items = 80
+        self._last_render_signature = None
         self._last_anchor = None
         self.setWindowFlags(Qt.Popup | Qt.FramelessWindowHint | Qt.NoDropShadowWindowHint)
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -654,11 +656,30 @@ class NotificationDropdown(QFrame):
     def notification_keys(self):
         return [item.get("key") for item in self._notifications if item.get("key")]
 
+    def _render_signature(self, notifications, unread, total):
+        return (
+            unread,
+            total,
+            tuple(
+                (
+                    item.get("key"),
+                    bool(item.get("is_read")),
+                    item.get("title"),
+                    item.get("message"),
+                    item.get("severity"),
+                    item.get("time_text") or item.get("created_at_fmt"),
+                )
+                for item in notifications
+            ),
+        )
+
     def _clear_items(self):
         while self._list_lay.count():
             item = self._list_lay.takeAt(0)
             if item.widget():
-                item.widget().deleteLater()
+                widget = item.widget()
+                widget.setParent(None)
+                widget.deleteLater()
 
     def _target_scroll_height(self):
         self._list_lay.activate()
@@ -684,27 +705,52 @@ class NotificationDropdown(QFrame):
     def set_notifications(self, notifications):
         was_visible = self.isVisible()
         previous_scroll_height = self._scroll.height() if was_visible else 0
-        self._notifications = list(notifications or [])
-        unread = sum(1 for item in self._notifications if not item.get("is_read"))
-        total = len(self._notifications)
-        self._count_lbl.setText(f"{unread} unread / {total} total" if total else "0 unread")
-        self._mark_all_btn.setEnabled(unread > 0)
-        self._clear_items()
+        previous_scroll_value = self._scroll.verticalScrollBar().value() if was_visible else 0
+        incoming = list(notifications or [])
+        total = len(incoming)
+        self._notifications = incoming[:self._max_rendered_items]
+        unread = sum(1 for item in incoming if not item.get("is_read"))
+        rendered_total = len(self._notifications)
+        rendered_unread = sum(1 for item in self._notifications if not item.get("is_read"))
 
-        if not self._notifications:
-            empty = QLabel("No notifications right now.")
-            empty.setAlignment(Qt.AlignCenter)
-            empty.setFont(inter(10))
-            empty.setWordWrap(True)
-            empty.setMinimumHeight(120)
-            empty.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
-            self._list_lay.addWidget(empty)
+        if not total:
+            self._count_lbl.setText("0 unread")
+        elif rendered_total < total:
+            self._count_lbl.setText(f"{unread} unread / showing {rendered_total} of {total}")
         else:
-            for notification in self._notifications:
-                self._list_lay.addWidget(
-                    NotificationItemWidget(notification, self._on_item_clicked)
-                )
-            self._list_lay.addStretch()
+            self._count_lbl.setText(f"{unread} unread / {total} total")
+        self._mark_all_btn.setEnabled(rendered_unread > 0)
+
+        signature = self._render_signature(self._notifications, unread, total)
+        if signature == self._last_render_signature:
+            if was_visible and self._last_anchor is not None:
+                self._fit_height_for_anchor(self._last_anchor)
+                self.move(self._position_for_anchor(self._last_anchor))
+            return
+        self._last_render_signature = signature
+
+        self._scroll.setUpdatesEnabled(False)
+        self._list_widget.setUpdatesEnabled(False)
+        try:
+            self._clear_items()
+
+            if not self._notifications:
+                empty = QLabel("No notifications right now.")
+                empty.setAlignment(Qt.AlignCenter)
+                empty.setFont(inter(10))
+                empty.setWordWrap(True)
+                empty.setMinimumHeight(120)
+                empty.setStyleSheet(f"color:{GRAY_4};background:transparent;border:none;")
+                self._list_lay.addWidget(empty)
+            else:
+                for notification in self._notifications:
+                    self._list_lay.addWidget(
+                        NotificationItemWidget(notification, self._on_item_clicked)
+                    )
+                self._list_lay.addStretch()
+        finally:
+            self._list_widget.setUpdatesEnabled(True)
+            self._scroll.setUpdatesEnabled(True)
 
         scroll_height = self._target_scroll_height()
         if was_visible and previous_scroll_height > 0:
@@ -714,6 +760,8 @@ class NotificationDropdown(QFrame):
         if was_visible and self._last_anchor is not None:
             self._fit_height_for_anchor(self._last_anchor)
             self.move(self._position_for_anchor(self._last_anchor))
+            bar = self._scroll.verticalScrollBar()
+            bar.setValue(min(previous_scroll_value, bar.maximum()))
 
     def _fit_height_for_anchor(self, anchor, margin=8):
         screen = QApplication.screenAt(anchor.mapToGlobal(QPoint(0, anchor.height())))
@@ -1624,6 +1672,7 @@ class DashboardView(QMainWindow):
         self._account_controller = AccountController()
         self._notification_controller = NotificationController(self._user)
         self._notifications = []
+        self._notification_refreshing = False
         self._message_controller = MessageController(self._user)
         self._dropdown_open = False
         self.setWindowTitle("G and C LPG Trading — Delivery Scheduling & Tracking System")
@@ -2564,22 +2613,28 @@ class DashboardView(QMainWindow):
     def _refresh_notifications(self):
         if not hasattr(self, "_notification_dropdown"):
             return
-
-        success, result = self._notification_controller.list_notifications()
-        if not success:
-            self._notifications = []
-            if hasattr(self, "_notif_btn"):
-                self._notif_btn.set_unread_count(0)
-                self._notif_btn.setToolTip(f"Notifications unavailable: {result}")
-            if self._notification_dropdown.isVisible():
-                self._notification_dropdown.set_notifications([])
+        if self._notification_refreshing:
             return
 
-        self._notifications = result or []
-        unread = sum(1 for item in self._notifications if not item.get("is_read"))
-        self._notif_btn.set_unread_count(unread)
-        if self._notification_dropdown.isVisible():
-            self._notification_dropdown.set_notifications(self._notifications)
+        self._notification_refreshing = True
+        try:
+            success, result = self._notification_controller.list_notifications()
+            if not success:
+                self._notifications = []
+                if hasattr(self, "_notif_btn"):
+                    self._notif_btn.set_unread_count(0)
+                    self._notif_btn.setToolTip(f"Notifications unavailable: {result}")
+                if self._notification_dropdown.isVisible():
+                    self._notification_dropdown.set_notifications([])
+                return
+
+            self._notifications = result or []
+            unread = sum(1 for item in self._notifications if not item.get("is_read"))
+            self._notif_btn.set_unread_count(unread)
+            if self._notification_dropdown.isVisible():
+                self._notification_dropdown.set_notifications(self._notifications)
+        finally:
+            self._notification_refreshing = False
 
     def _queue_notification_refresh(self, reason="data_changed"):
         if not hasattr(self, "_notification_event_timer"):

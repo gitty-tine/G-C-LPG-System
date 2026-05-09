@@ -29,7 +29,7 @@ class DeliveryModel:
                     vd.notes,
                     vd.encoded_by,
                     DATE_FORMAT(vd.created_at, '%b %d, %Y %h:%i %p')      AS created_at_fmt,
-                    COALESCE(SUM(di.quantity * di.price_at_delivery), 0)    AS total_amount,
+                    fn_delivery_total(vd.delivery_id)                       AS total_amount,
                     COALESCE(COUNT(di.id), 0)                               AS item_count,
                     COALESCE(
                         GROUP_CONCAT(

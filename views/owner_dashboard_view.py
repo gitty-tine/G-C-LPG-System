@@ -398,6 +398,7 @@ class OwnerDashboardView(QMainWindow):
         self._notification_refresh_interval_ms = 5000
         self._notification_controller = NotificationController(self._user)
         self._notifications = []
+        self._notification_refreshing = False
         self._message_controller = MessageController(self._user)
         self._dropdown_open = False
         self._action_handlers = {}
@@ -1091,22 +1092,28 @@ class OwnerDashboardView(QMainWindow):
     def _refresh_notifications(self):
         if not hasattr(self, "_notification_dropdown"):
             return
-
-        success, result = self._notification_controller.list_notifications()
-        if not success:
-            self._notifications = []
-            if hasattr(self, "_notif_btn"):
-                self._notif_btn.set_unread_count(0)
-                self._notif_btn.setToolTip(f"Notifications unavailable: {result}")
-            if self._notification_dropdown.isVisible():
-                self._notification_dropdown.set_notifications([])
+        if self._notification_refreshing:
             return
 
-        self._notifications = result or []
-        unread = sum(1 for item in self._notifications if not item.get("is_read"))
-        self._notif_btn.set_unread_count(unread)
-        if self._notification_dropdown.isVisible():
-            self._notification_dropdown.set_notifications(self._notifications)
+        self._notification_refreshing = True
+        try:
+            success, result = self._notification_controller.list_notifications()
+            if not success:
+                self._notifications = []
+                if hasattr(self, "_notif_btn"):
+                    self._notif_btn.set_unread_count(0)
+                    self._notif_btn.setToolTip(f"Notifications unavailable: {result}")
+                if self._notification_dropdown.isVisible():
+                    self._notification_dropdown.set_notifications([])
+                return
+
+            self._notifications = result or []
+            unread = sum(1 for item in self._notifications if not item.get("is_read"))
+            self._notif_btn.set_unread_count(unread)
+            if self._notification_dropdown.isVisible():
+                self._notification_dropdown.set_notifications(self._notifications)
+        finally:
+            self._notification_refreshing = False
 
     def _queue_notification_refresh(self, reason="data_changed"):
         if not hasattr(self, "_notification_event_timer"):
